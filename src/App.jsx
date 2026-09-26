@@ -12,7 +12,9 @@ import LoginPage from './components/LoginPage.jsx';
 import SignupPage from './components/SignupPage.jsx';
 import AdminUserManagement from './components/AdminUserManagement.jsx';
 
-const CATEGORIES = ['CAT 1', 'CAT 2', 'CAT 3', 'CAT 4', 'CAT 5', 'CAT 6'];
+const CATEGORIES = ['Cat 1', 'Cat 2', 'Cat 3'];
+const MATERIAL_TYPES = ['Recycling', 'EOL'];
+const CATEGORY_COMBOS = CATEGORIES.flatMap(c => MATERIAL_TYPES.map(t => ({ category: c, materialType: t, label: `${c} — ${t}` })));
 
 const formatCurrency = (amount) => {
   return new Intl.NumberFormat('en-IN', {
@@ -81,8 +83,8 @@ export default function App() {
   
   // UI States
   const [expandedCats, setExpandedCats] = useState({
-    Purchase: CATEGORIES.reduce((acc, cat) => ({...acc, [cat]: true}), {}),
-    Sale: CATEGORIES.reduce((acc, cat) => ({...acc, [cat]: true}), {})
+    Purchase: CATEGORY_COMBOS.reduce((acc, combo) => ({...acc, [combo.label]: true}), {}),
+    Sale: CATEGORY_COMBOS.reduce((acc, combo) => ({...acc, [combo.label]: true}), {})
   });
   
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
@@ -183,7 +185,9 @@ export default function App() {
       filtered = filtered.filter(t => statusDealIds.includes(t.dealId));
     }
     if (typeFilter !== 'All') filtered = filtered.filter(t => t.type === typeFilter);
-    if (catFilter !== 'All') filtered = filtered.filter(t => t.category === catFilter);
+    if (catFilter !== 'All') {
+      filtered = filtered.filter(t => `${t.category} — ${t.materialType || 'Recycling'}` === catFilter);
+    }
 
     // Global Search
     if (searchQuery.trim()) {
@@ -216,12 +220,13 @@ export default function App() {
     }));
   };
 
-  const openTxModal = (mode, type, category = 'CAT 1', tx = null) => {
+  const openTxModal = (mode, type, category = 'Cat 1', materialType = 'Recycling', tx = null) => {
     setTxModalMode(mode);
     
     setActiveTxData(mode === 'edit' ? tx : { 
       type, 
       category,
+      materialType,
       counterPartyId: currentDeal?.counterPartyId?._id || currentDeal?.counterPartyId,
       counterPartyAgentId: currentDeal?.counterPartyAgentId?._id || currentDeal?.counterPartyAgentId,
       myAgentId: currentDeal?.myAgentId?._id || currentDeal?.myAgentId,
@@ -311,7 +316,7 @@ export default function App() {
                   myAgentId: dealData.myAgentId,
                   date: dealData.date,
                   status: dealData.status === 'Enquiry' ? 'Enquiry' : 'Completed',
-                  totalAmount: Number(dealData.initialTransaction.quantity || 0) * Number(dealData.initialTransaction.ratePerKg || 0)
+                  totalAmount: Number(dealData.initialTransaction.quantity || 0) * 1000 * Number(dealData.initialTransaction.ratePerKg || 0)
                 })
               });
               loadTradingData();
@@ -642,7 +647,7 @@ export default function App() {
               </select>
               <select className="form-select" value={catFilter} onChange={e => setCatFilter(e.target.value)} style={{ width: 'auto' }}>
                 <option value="All">All Categories</option>
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                {CATEGORY_COMBOS.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
               </select>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -826,20 +831,21 @@ export default function App() {
                 )}
               </div>
               
-              {CATEGORIES.filter(c => visibleTransactions.some(t => t.category === c)).map(cat => {
-                const isExpanded = expandedCats.Purchase[cat];
-                const txs = purchaseTxs.filter(t => t.category === cat);
+              {CATEGORY_COMBOS.filter(combo => visibleTransactions.some(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType)).map(combo => {
+                const catLabel = combo.label;
+                const isExpanded = expandedCats.Purchase[catLabel];
+                const txs = purchaseTxs.filter(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType);
                 const totalQty = txs.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
                 const totalAmt = txs.reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
                 const rateSummary = getRateSummary(txs, 'Purchase');
 
                 return (
-                  <div key={`purchase-${cat}`} className="category-group">
+                  <div key={`purchase-${catLabel}`} className="category-group">
                     {/* Header with Deal Count */}
-                    <div className={`category-header ${!isExpanded ? 'collapsed' : ''}`} onClick={() => toggleCategory('Purchase', cat)}>
+                    <div className={`category-header ${!isExpanded ? 'collapsed' : ''}`} onClick={() => toggleCategory('Purchase', catLabel)}>
                       <div className="flex items-center gap-2">
                         {isExpanded ? <ChevronDown size={18}/> : <ChevronRight size={18}/>}
-                        <span>{cat}</span>
+                        <span>{catLabel}</span>
                         <span className="badge badge-primary" style={{ marginLeft: '6px', fontSize: '0.72rem' }}>
                           {txs.length} {txs.length === 1 ? 'Deal' : 'Deals'}
                         </span>
@@ -847,8 +853,8 @@ export default function App() {
                       {(role === 'ADMIN' || role === 'MY_AGENT') && (
                         <button className="btn-icon add-btn" title={txs.length > 0 ? "Edit Purchase Transaction" : "Add Purchase Transaction"} onClick={(e) => { 
                           e.stopPropagation(); 
-                          if (txs.length > 0) openTxModal('edit', 'Purchase', cat, txs[0]);
-                          else openTxModal('add', 'Purchase', cat); 
+                          if (txs.length > 0) openTxModal('edit', 'Purchase', combo.category, combo.materialType, txs[0]);
+                          else openTxModal('add', 'Purchase', combo.category, combo.materialType); 
                         }}>
                           {txs.length > 0 ? <Edit size={16} /> : <Plus size={18} />}
                         </button>
@@ -860,7 +866,7 @@ export default function App() {
                       <div className="category-compact-summary">
                         <div className="cat-summary-col">
                           <span className="cat-summary-label">Total Quantity:</span>
-                          <span className="cat-summary-val font-semibold">{totalQty.toLocaleString()} KG</span>
+                          <span className="cat-summary-val font-semibold">{totalQty.toLocaleString()} MT</span>
                         </div>
                         <div className="cat-summary-col">
                           <span className="cat-summary-label">Purchase Rate:</span>
@@ -882,7 +888,7 @@ export default function App() {
                           <div className="empty-state">
                             <p>No transactions added yet.</p>
                             {(role === 'ADMIN' || role === 'MY_AGENT') && (
-                              <button className="btn btn-outline" style={{ marginTop: '8px' }} onClick={() => openTxModal('add', 'Purchase', cat)}>+ Add Purchase</button>
+                              <button className="btn btn-outline" style={{ marginTop: '8px' }} onClick={() => openTxModal('add', 'Purchase', combo.category, combo.materialType)}>+ Add Purchase</button>
                             )}
                           </div>
                         ) : (
@@ -895,7 +901,7 @@ export default function App() {
                                 myAgent={tx.myAgentId?.name ? tx.myAgentId : agents.find(a => a._id === tx.myAgentId)}
                                 currentUserRole={role}
                                 onView={() => { setSelectedTx(tx); setIsTxDrawerOpen(true); }}
-                                onEdit={() => openTxModal('edit', 'Purchase', tx.category, tx)}
+                                onEdit={() => openTxModal('edit', 'Purchase', tx.category, tx.materialType, tx)}
                                 onDelete={() => deleteTransaction(tx)}
                                 onProfileClick={(type, id) => openProfile(type, id, tx)}
                               />
@@ -920,20 +926,21 @@ export default function App() {
                 )}
               </div>
               
-              {CATEGORIES.filter(c => visibleTransactions.some(t => t.category === c)).map(cat => {
-                const isExpanded = expandedCats.Sale[cat];
-                const txs = saleTxs.filter(t => t.category === cat);
+              {CATEGORY_COMBOS.filter(combo => visibleTransactions.some(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType)).map(combo => {
+                const catLabel = combo.label;
+                const isExpanded = expandedCats.Sale[catLabel];
+                const txs = saleTxs.filter(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType);
                 const totalQty = txs.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
                 const totalAmt = txs.reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
                 const rateSummary = getRateSummary(txs, 'Sale');
 
                 return (
-                  <div key={`sale-${cat}`} className="category-group">
+                  <div key={`sale-${catLabel}`} className="category-group">
                     {/* Header with Deal Count */}
-                    <div className={`category-header ${!isExpanded ? 'collapsed' : ''}`} onClick={() => toggleCategory('Sale', cat)}>
+                    <div className={`category-header ${!isExpanded ? 'collapsed' : ''}`} onClick={() => toggleCategory('Sale', catLabel)}>
                       <div className="flex items-center gap-2">
                         {isExpanded ? <ChevronDown size={18}/> : <ChevronRight size={18}/>}
-                        <span>{cat}</span>
+                        <span>{catLabel}</span>
                         <span className="badge badge-warning" style={{ marginLeft: '6px', fontSize: '0.72rem' }}>
                           {txs.length} {txs.length === 1 ? 'Deal' : 'Deals'}
                         </span>
@@ -941,8 +948,8 @@ export default function App() {
                       {(role === 'ADMIN' || role === 'MY_AGENT') && (
                         <button className="btn-icon add-btn" title={txs.length > 0 ? "Edit Sale Transaction" : "Add Sale Transaction"} onClick={(e) => { 
                           e.stopPropagation(); 
-                          if (txs.length > 0) openTxModal('edit', 'Sale', cat, txs[0]);
-                          else openTxModal('add', 'Sale', cat); 
+                          if (txs.length > 0) openTxModal('edit', 'Sale', combo.category, combo.materialType, txs[0]);
+                          else openTxModal('add', 'Sale', combo.category, combo.materialType); 
                         }}>
                           {txs.length > 0 ? <Edit size={16} /> : <Plus size={18} />}
                         </button>
@@ -954,7 +961,7 @@ export default function App() {
                       <div className="category-compact-summary" style={{ background: '#f5f3ff', borderColor: '#ddd6fe' }}>
                         <div className="cat-summary-col">
                           <span className="cat-summary-label">Total Quantity:</span>
-                          <span className="cat-summary-val font-semibold">{totalQty.toLocaleString()} KG</span>
+                          <span className="cat-summary-val font-semibold">{totalQty.toLocaleString()} MT</span>
                         </div>
                         <div className="cat-summary-col">
                           <span className="cat-summary-label">Sale Rate:</span>
@@ -976,7 +983,7 @@ export default function App() {
                           <div className="empty-state">
                             <p>No transactions added yet.</p>
                             {(role === 'ADMIN' || role === 'MY_AGENT') && (
-                              <button className="btn btn-outline" style={{ marginTop: '8px' }} onClick={() => openTxModal('add', 'Sale', cat)}>+ Add Sale</button>
+                              <button className="btn btn-outline" style={{ marginTop: '8px' }} onClick={() => openTxModal('add', 'Sale', combo.category, combo.materialType)}>+ Add Sale</button>
                             )}
                           </div>
                         ) : (
@@ -989,7 +996,7 @@ export default function App() {
                                 myAgent={tx.myAgentId?.name ? tx.myAgentId : agents.find(a => a._id === tx.myAgentId)}
                                 currentUserRole={role}
                                 onView={() => { setSelectedTx(tx); setIsTxDrawerOpen(true); }}
-                                onEdit={() => openTxModal('edit', 'Sale', tx.category, tx)}
+                                onEdit={() => openTxModal('edit', 'Sale', tx.category, tx.materialType, tx)}
                                 onDelete={() => deleteTransaction(tx)}
                                 onProfileClick={(type, id) => openProfile(type, id, tx)}
                               />
@@ -1356,7 +1363,7 @@ function DealRateSummary({ deal, transactions }) {
 
   const dealNetAmount = totalSaleAmt - totalPurchaseAmt;
 
-  const activeCats = CATEGORIES.filter(cat => dealTxs.some(t => t.category === cat));
+  const activeCombos = CATEGORY_COMBOS.filter(combo => dealTxs.some(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType));
 
   return (
     <div className="deal-rate-summary-card">
@@ -1379,7 +1386,7 @@ function DealRateSummary({ deal, transactions }) {
           </div>
           <div className="rate-overview-row">
             <span className="text-muted">Total Quantity:</span>
-            <span className="font-bold">{totalPurchaseQty.toLocaleString()} KG</span>
+            <span className="font-bold">{totalPurchaseQty.toLocaleString()} MT</span>
           </div>
           <div className="rate-overview-row">
             <span className="text-muted">Purchase Rate:</span>
@@ -1406,7 +1413,7 @@ function DealRateSummary({ deal, transactions }) {
           </div>
           <div className="rate-overview-row">
             <span className="text-muted">Total Quantity:</span>
-            <span className="font-bold">{totalSaleQty.toLocaleString()} KG</span>
+            <span className="font-bold">{totalSaleQty.toLocaleString()} MT</span>
           </div>
           <div className="rate-overview-row">
             <span className="text-muted">Sale Rate:</span>
@@ -1467,9 +1474,10 @@ function DealRateSummary({ deal, transactions }) {
             </tr>
           </thead>
           <tbody>
-            {activeCats.map(cat => {
-              const pTxs = purchaseTxs.filter(t => t.category === cat);
-              const sTxs = saleTxs.filter(t => t.category === cat);
+            {activeCombos.map(combo => {
+              const comboLabel = combo.label;
+              const pTxs = purchaseTxs.filter(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType);
+              const sTxs = saleTxs.filter(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType);
               const pQty = pTxs.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
               const pAmt = pTxs.reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
               const sQty = sTxs.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
@@ -1480,12 +1488,12 @@ function DealRateSummary({ deal, transactions }) {
               const sRate = getRateSummary(sTxs, 'Sale');
 
               return (
-                <tr key={cat}>
-                  <td><strong>{cat}</strong></td>
-                  <td>{pQty > 0 ? `${pQty.toLocaleString()} KG` : '—'}</td>
+                <tr key={comboLabel}>
+                  <td><strong>{comboLabel}</strong></td>
+                  <td>{pQty > 0 ? `${pQty.toLocaleString()} MT` : '—'}</td>
                   <td className="text-primary font-semibold">{pRate.primary}</td>
                   <td>{pAmt > 0 ? formatCurrency(pAmt) : '—'}</td>
-                  <td>{sQty > 0 ? `${sQty.toLocaleString()} KG` : '—'}</td>
+                  <td>{sQty > 0 ? `${sQty.toLocaleString()} MT` : '—'}</td>
                   <td className="text-purple-600 font-semibold">{sRate.primary}</td>
                   <td>{sAmt > 0 ? formatCurrency(sAmt) : '—'}</td>
                   <td>
@@ -1523,7 +1531,7 @@ function TransactionCard({ tx, counterParty, counterAgent, myAgent, currentUserR
       <div className="tx-details-prominent">
         <div className="tx-prominent-item">
           <span className="prominent-label">Quantity:</span>
-          <span className="prominent-value">{Number(tx.quantity).toLocaleString()} KG</span>
+          <span className="prominent-value">{Number(tx.quantity).toLocaleString()} MT</span>
         </div>
 
         <div className={`tx-prominent-item rate-highlight ${isPurchase ? 'purchase' : 'sale'}`}>
@@ -1531,7 +1539,7 @@ function TransactionCard({ tx, counterParty, counterAgent, myAgent, currentUserR
             {isPurchase ? 'Purchase Rate:' : 'Sale Rate:'}
           </span>
           <span className="prominent-rate-value">
-            {formatCurrency(tx.ratePerKg)} / KG
+            {formatCurrency(tx.ratePerKg)} / kg
           </span>
         </div>
 
@@ -1598,7 +1606,8 @@ function TransactionModal({ isOpen, onClose, mode, initialData, counterParties, 
   const [formData, setFormData] = useState({
     dealId: dealId,
     type: initialData?.type || 'Purchase',
-    category: initialData?.category || 'CAT 1',
+    category: initialData?.category || 'Cat 1',
+    materialType: initialData?.materialType || 'Recycling',
     counterPartyId: initialData?.counterPartyId?.name || (counterParties.find(cp => cp._id === initialData?.counterPartyId)?.name) || '',
     counterPartyAgentId: initialData?.counterPartyAgentId?.name || (agents.find(a => a._id === initialData?.counterPartyAgentId)?.name) || '',
     myAgentId: initialData?.myAgentId?.name || (agents.find(a => a._id === initialData?.myAgentId)?.name) || '',
@@ -1609,9 +1618,9 @@ function TransactionModal({ isOpen, onClose, mode, initialData, counterParties, 
   });
 
   const totalAmount = useMemo(() => {
-    const q = Number(formData.quantity);
+    const q = Number(formData.quantity); // in MT
     const r = Number(formData.ratePerKg);
-    if (!isNaN(q) && !isNaN(r) && q > 0 && r > 0) return q * r;
+    if (!isNaN(q) && !isNaN(r) && q > 0 && r > 0) return q * 1000 * r;
     return 0;
   }, [formData.quantity, formData.ratePerKg]);
 
@@ -1622,7 +1631,7 @@ function TransactionModal({ isOpen, onClose, mode, initialData, counterParties, 
       <div className="modal">
         <div className="modal-header">
           <h3>
-            {mode === 'edit' ? 'Edit' : 'Add'} {formData.type} Transaction — {formData.category}
+            {mode === 'edit' ? 'Edit' : 'Add'} {formData.type} Transaction — {formData.category} ({formData.materialType})
           </h3>
           <button className="btn-icon" onClick={onClose}><X size={20} /></button>
         </div>
@@ -1651,15 +1660,24 @@ function TransactionModal({ isOpen, onClose, mode, initialData, counterParties, 
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span className="text-sm text-muted">Category:</span> 
                 {mode === 'add' ? (
-                  <select 
-                    value={formData.category} 
-                    onChange={e => setFormData({...formData, category: e.target.value})}
-                    style={{ padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--border)', fontSize: '0.85rem', fontWeight: 600 }}
-                  >
-                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <select 
+                      value={formData.category} 
+                      onChange={e => setFormData({...formData, category: e.target.value})}
+                      style={{ padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--border)', fontSize: '0.85rem', fontWeight: 600 }}
+                    >
+                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <select 
+                      value={formData.materialType} 
+                      onChange={e => setFormData({...formData, materialType: e.target.value})}
+                      style={{ padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--border)', fontSize: '0.85rem', fontWeight: 600 }}
+                    >
+                      {MATERIAL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
                 ) : (
-                  <strong>{formData.category}</strong>
+                  <strong>{formData.category} — {formData.materialType}</strong>
                 )}
               </div>
               <div><span className="text-sm text-muted">Deal ID:</span> <strong>{formData.dealId}</strong></div>
@@ -1713,21 +1731,22 @@ function TransactionModal({ isOpen, onClose, mode, initialData, counterParties, 
             </div>
 
             <div className="form-group">
-              <label className="form-label font-semibold">Quantity (KG)</label>
+              <label className="form-label font-semibold">Quantity (MT)</label>
               <input 
                 type="number" 
                 className="form-input" 
                 value={formData.quantity} 
                 onChange={e => setFormData({...formData, quantity: e.target.value})} 
                 required 
-                min="1" 
-                placeholder="e.g. 10000" 
+                min="0.001"
+                step="0.001"
+                placeholder="e.g. 10" 
               />
             </div>
 
             <div className="form-group">
               <label className="form-label font-semibold">
-                {formData.type === 'Purchase' ? 'Purchase Rate (₹ / KG)' : 'Sale Rate (₹ / KG)'}
+                {formData.type === 'Purchase' ? 'Purchase Rate (₹/kg)' : 'Sale Rate (₹/kg)'}
               </label>
               <input 
                 type="number" 
@@ -1748,7 +1767,7 @@ function TransactionModal({ isOpen, onClose, mode, initialData, counterParties, 
                 </label>
                 {formData.quantity && formData.ratePerKg && (
                   <span className="badge badge-primary">
-                    {Number(formData.quantity).toLocaleString()} KG × ₹{Number(formData.ratePerKg).toFixed(2)}/KG
+                    {Number(formData.quantity).toLocaleString()} MT × 1000 × ₹{Number(formData.ratePerKg).toFixed(2)}/kg
                   </span>
                 )}
               </div>
@@ -1802,6 +1821,7 @@ function DealModal({ isOpen, onClose, mode, initialData, counterParties, agents,
   const [txData, setTxData] = useState({
     type: 'Purchase',
     category: CATEGORIES[0],
+    materialType: MATERIAL_TYPES[0],
     quantity: '',
     ratePerKg: '',
   });
@@ -1921,26 +1941,32 @@ function DealModal({ isOpen, onClose, mode, initialData, counterParties, agents,
                     
                     <div className="form-group">
                       <label className="form-label">Category</label>
-                      <select className="form-select" value={txData.category} onChange={e => setTxData({...txData, category: e.target.value})}>
-                        {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <select className="form-select" value={txData.category} onChange={e => setTxData({...txData, category: e.target.value})}>
+                          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <select className="form-select" value={txData.materialType} onChange={e => setTxData({...txData, materialType: e.target.value})}>
+                          {MATERIAL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
                     </div>
                     
                     <div className="form-group">
-                      <label className="form-label">Quantity (KG)</label>
+                      <label className="form-label">Quantity (MT)</label>
                       <input 
                         type="number" 
                         className="form-input" 
-                        placeholder="e.g. 10000" 
+                        placeholder="e.g. 10" 
                         value={txData.quantity} 
                         onChange={e => setTxData({...txData, quantity: e.target.value})}
                         required={includeInitialTx}
-                        min="1"
+                        min="0.001"
+                        step="0.001"
                       />
                     </div>
                     
                     <div className="form-group">
-                      <label className="form-label">Rate (₹ / KG)</label>
+                      <label className="form-label">Rate (₹/kg)</label>
                       <input 
                         type="number" 
                         className="form-input" 
@@ -1976,7 +2002,7 @@ function DealModal({ isOpen, onClose, mode, initialData, counterParties, agents,
                           color: txData.type === 'Purchase' ? '#0369a1' : '#6d28d9', 
                           fontWeight: 800 
                         }}>
-                          {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format((Number(txData.quantity) || 0) * (Number(txData.ratePerKg) || 0))}
+                          {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format((Number(txData.quantity) || 0) * 1000 * (Number(txData.ratePerKg) || 0))}
                         </span>
                       </div>
                     </div>
@@ -2076,12 +2102,12 @@ function TransactionDrawer({ isOpen, onClose, tx, counterParty, counterAgent, my
           <h4 style={{ margin: '20px 0 12px 0' }}>Financials</h4>
           <div className="detail-row">
             <span className="detail-label">Quantity</span>
-            <span className="detail-value">{Number(tx.quantity).toLocaleString()} KG</span>
+            <span className="detail-value">{Number(tx.quantity).toLocaleString()} MT</span>
           </div>
           <div className="detail-row">
-            <span className="detail-label">{isPurchase ? 'Purchase Rate / KG' : 'Sale Rate / KG'}</span>
+            <span className="detail-label">{isPurchase ? 'Purchase Rate / kg' : 'Sale Rate / kg'}</span>
             <span className={`detail-value font-bold ${isPurchase ? 'text-primary' : 'text-purple-600'}`}>
-              {formatCurrency(tx.ratePerKg)} / KG
+              {formatCurrency(tx.ratePerKg)} / kg
             </span>
           </div>
           <div className="detail-row" style={{ backgroundColor: 'var(--background)', padding: '12px', borderRadius: 'var(--radius-sm)', marginTop: '8px' }}>
@@ -2399,7 +2425,7 @@ function ProfileDrawer({
                 </div>
                 <div className="detail-row">
                   <span className="detail-label">Category</span>
-                  <span className="detail-value font-semibold">{currentDealTx.category || 'CAT 1'}</span>
+                  <span className="detail-value font-semibold">{currentDealTx.category || 'Cat 1'} — {currentDealTx.materialType || 'Recycling'}</span>
                 </div>
                 <div className="detail-row">
                   <span className="detail-label">Transaction</span>
@@ -2409,7 +2435,7 @@ function ProfileDrawer({
                 </div>
                 <div className="detail-row">
                   <span className="detail-label">Quantity</span>
-                  <span className="detail-value">{currentDealTx.quantity ? currentDealTx.quantity.toLocaleString() : '10,000'} KG</span>
+                  <span className="detail-value">{currentDealTx.quantity ? currentDealTx.quantity.toLocaleString() : '10'} MT</span>
                 </div>
                 <div className="detail-row">
                   <span className="detail-label">{currentDealTx.type === 'Purchase' ? 'Purchase Rate' : 'Sale Rate'}</span>
@@ -2540,7 +2566,7 @@ function ProfileDrawer({
                       <div className="deal-history-grid">
                         <div>
                           <span className="text-muted">Quantity:</span>
-                          <div className="font-semibold">{Number(tx.quantity).toLocaleString()} KG</div>
+                          <div className="font-semibold">{Number(tx.quantity).toLocaleString()} MT</div>
                         </div>
                         <div>
                           <span className="text-muted">{tx.type === 'Purchase' ? 'Purchase Rate:' : 'Sale Rate:'}</span>
