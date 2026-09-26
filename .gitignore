@@ -1,4 +1,6 @@
+# ==========================================
 # Logs
+# ==========================================
 logs
 *.log
 npm-debug.log*
@@ -7,33 +9,44 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# ==========================================
 # Dependencies
+# ==========================================
 node_modules
 .pnp
 .pnp.js
 
-# Testing
-coverage
-
+# ==========================================
 # Build output
+# ==========================================
 dist
 dist-ssr
 build
 out
 
-# Environment variables
+# ==========================================
+# Environment Variables (NEVER COMMIT THESE)
+# ==========================================
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
+# ==========================================
+# Local Database / In-Memory Persistence
+# ==========================================
+local_database.json
+
+# ==========================================
 # Editor directories and files
+# ==========================================
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
 .idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
@@ -41,10 +54,9 @@ out
 *.sw?
 .eslintcache
 
-# Next.js (if applicable in future)
-.next/
-
+# ==========================================
 # Misc
+# ==========================================
 *.pem
-package-lock.json
-yarn.lock
+coverage
+.next/

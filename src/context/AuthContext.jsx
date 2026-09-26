@@ -8,6 +8,8 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
 
+  const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
   // Helper to make authenticated API requests
   const authFetch = async (url, options = {}) => {
     const headers = {
@@ -20,7 +22,7 @@ export const AuthProvider = ({ children }) => {
       headers['Authorization'] = `Bearer ${currentToken}`;
     }
 
-    const response = await fetch(url, { ...options, headers });
+    const response = await fetch(`${API_BASE_URL}${url}`, { ...options, headers });
     const data = await response.json();
 
     if (response.status === 401) {
@@ -61,7 +63,7 @@ export const AuthProvider = ({ children }) => {
   const login = async (identifier, password) => {
     setAuthError(null);
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier, password }),
@@ -88,7 +90,7 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     setAuthError(null);
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(userData),
@@ -110,7 +112,7 @@ export const AuthProvider = ({ children }) => {
 
   const forgotPassword = async (identifier) => {
     try {
-      const res = await fetch('/api/auth/forgot-password', {
+      const res = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier }),
