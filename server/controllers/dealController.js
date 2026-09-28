@@ -96,7 +96,7 @@ export const getDealById = async (req, res) => {
 
 export const createDeal = async (req, res) => {
   try {
-    let { counterPartyId, counterPartyAgentId, myAgentId, status, notes } = req.body;
+    let { counterPartyId, counterPartyAgentId, myAgentId, status, notes, categories } = req.body;
 
     if (!counterPartyId || !counterPartyAgentId || !myAgentId) {
       return res.status(400).json({ success: false, message: 'Counter Party, Counter Party Agent, and My Agent are required.' });
@@ -116,8 +116,19 @@ export const createDeal = async (req, res) => {
       myAgentId = newA._id;
     }
 
-    const count = await Deal.countDocuments();
-    const dealId = `DEAL-${String(count + 125).padStart(6, '0')}`;
+    const allDeals = await Deal.find({});
+    const allTxs = await Transaction.find({});
+    let maxNum = 124;
+    for (const d of allDeals) {
+      const m = String(d.dealId || '').match(/DEAL-(\d+)/i);
+      if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
+    }
+    // Include orphan tx dealIds so we never reuse an ID that still has leftover transactions
+    for (const t of allTxs) {
+      const m = String(t.dealId || '').match(/DEAL-(\d+)/i);
+      if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
+    }
+    const dealId = `DEAL-${String(maxNum + 1).padStart(6, '0')}`;
 
     const newDeal = await Deal.create({
       dealId,
@@ -126,6 +137,7 @@ export const createDeal = async (req, res) => {
       myAgentId,
       status: status || 'Enquiry',
       notes: notes || '',
+      categories: categories || [],
       createdBy: req.user._id,
       date: new Date(),
     });
@@ -142,6 +154,7 @@ export const createDeal = async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating deal:', error);
+    try { import('fs').then(fs => fs.writeFileSync('deal_error_log.txt', String(error.stack || error.message))); } catch(e) {}
     return res.status(500).json({
       success: false,
       message: 'Server error creating deal.',
@@ -263,3 +276,31 @@ export const deleteDeal = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server error deleting deal.' });
   }
 };
+
+export const addDealCategory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { category, materialType } = req.body;
+
+    if (!category) {
+      return res.status(400).json({ success: false, message: 'Category is required.' });
+    }
+
+    const deal = await Deal.findById(id);
+    if (!deal) {
+      return res.status(404).json({ success: false, message: 'Deal not found.' });
+    }
+
+    const existingCats = deal.categories || [];
+    const alreadyHas = existingCats.some(c => c.name === category && c.type === (materialType || 'Recycling'));
+    if (!alreadyHas) {
+      deal.categories = [...existingCats, { name: category, type: materialType || 'Recycling' }];
+      await deal.save();
+    }
+
+    return res.status(200).json({ success: true, deal });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Server error updating deal categories.' });
+  }
+};
+

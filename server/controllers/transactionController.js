@@ -4,6 +4,7 @@ import { Agent } from '../models/Agent.js';
 import { Deal } from '../models/Deal.js';
 import { CounterParty } from '../models/CounterParty.js';
 
+import { calculateTransactionTotal } from '../utils/calculations.js';
 export const getTransactions = async (req, res) => {
   try {
     const { role, agentId } = req.user;
@@ -71,8 +72,10 @@ export const createTransaction = async (req, res) => {
     }
 
     const q = Number(quantity);
-    const r = Number(ratePerKg);
-    const totalAmount = Math.round(q * r);
+    const r = parseFloat(ratePerKg);
+    const unit = req.body.unit || req.body.quantityUnit || 'MT';
+    const materialType = req.body.materialType || 'Recycling';
+    const totalAmount = calculateTransactionTotal(q, unit, r).totalAmount;
 
     if (!counterPartyId || !counterPartyAgentId || !myAgentId) {
       return res.status(400).json({ success: false, message: 'Counter Party, Counter Party Agent, and My Agent are required.' });
@@ -100,10 +103,12 @@ export const createTransaction = async (req, res) => {
       dealId,
       type,
       category,
+      materialType,
       counterPartyId,
       counterPartyAgentId,
       myAgentId,
       quantity: q,
+      unit,
       ratePerKg: r,
       totalAmount,
       notes: notes || '',
@@ -152,7 +157,7 @@ export const updateTransaction = async (req, res) => {
 
     const q = req.body.quantity !== undefined ? Number(req.body.quantity) : tx.quantity;
     const r = req.body.ratePerKg !== undefined ? Number(req.body.ratePerKg) : tx.ratePerKg;
-    const totalAmount = Math.round(q * r);
+    const totalAmount = calculateTransactionTotal(q, req.body.unit || req.body.quantityUnit || tx.unit || 'MT', r).totalAmount;
 
     const updateData = {
       ...req.body,

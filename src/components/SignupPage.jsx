@@ -40,7 +40,7 @@ export default function SignupPage({ onNavigateToLogin }) {
     setFieldErrors(p => ({ ...p, [name]: '' }));
     setErrorMessage('');
   };
-
+                     
   const validate = () => {
     const errors = {};
     if (!formData.name.trim()) errors.name = 'Full Name is required.';

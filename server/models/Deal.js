@@ -11,6 +11,7 @@ const dealSchema = new mongoose.Schema(
     counterPartyAgentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Agent', required: true },
     myAgentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Agent', required: true },
     notes: { type: String, default: '' },
+    categories: { type: [Object], default: [] },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true }

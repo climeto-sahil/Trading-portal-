@@ -48,6 +48,16 @@ export const connectDB = async () => {
         if (fileData.CounterParty) inMemoryDB.counterParties.docs = fileData.CounterParty;
         if (fileData.Deal) inMemoryDB.deals.docs = fileData.Deal;
         if (fileData.Transaction) inMemoryDB.transactions.docs = fileData.Transaction;
+
+        // Drop orphan transactions whose deal no longer exists (prevents "extra" purchases on reused deal IDs)
+        const liveDealIds = new Set(inMemoryDB.deals.docs.map(d => d.dealId));
+        const before = inMemoryDB.transactions.docs.length;
+        inMemoryDB.transactions.docs = inMemoryDB.transactions.docs.filter(t => liveDealIds.has(t.dealId));
+        if (inMemoryDB.transactions.docs.length !== before) {
+          console.log(`Cleaned ${before - inMemoryDB.transactions.docs.length} orphan transaction(s).`);
+          persistToDisk();
+        }
+
         console.log('Successfully loaded data from local_database.json!');
       } catch (e) {
         console.error('Error loading local_database.json:', e);

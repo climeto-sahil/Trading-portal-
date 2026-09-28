@@ -25,10 +25,7 @@ export default function LoginPage({ onNavigateToSignup }) {
   const [showDevAccounts, setShowDevAccounts] = useState(false);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('trading_portal_remembered_id');
-      if (saved) { setIdentifier(saved); setRememberMe(true); }
-    } catch (_) {}
+    localStorage.removeItem('trading_portal_remembered_id');
   }, []);
 
   const handleSubmit = async (e) => {

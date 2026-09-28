@@ -11,12 +11,22 @@ import { useAuth } from './context/AuthContext.jsx';
 import LoginPage from './components/LoginPage.jsx';
 import SignupPage from './components/SignupPage.jsx';
 import AdminUserManagement from './components/AdminUserManagement.jsx';
+import { calculateTransactionTotal, aggregateTransactions, getRateSummaryForTransactions } from './utils/calculations.js';
+
 
 const CATEGORIES = ['Cat 1', 'Cat 2', 'Cat 3'];
 const MATERIAL_TYPES = ['Recycling', 'EOL'];
 const CATEGORY_COMBOS = CATEGORIES.flatMap(c => MATERIAL_TYPES.map(t => ({ category: c, materialType: t, label: `${c} — ${t}` })));
 
-const formatCurrency = (amount) => {
+const formatRate = (rate) => {
+    if (!rate) return "—";
+    const num = parseFloat(rate);
+    return `₹${num} / KG`;
+  };
+
+
+
+  const formatCurrency = (amount) => {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
@@ -24,32 +34,6 @@ const formatCurrency = (amount) => {
   }).format(amount || 0);
 };
 
-// Helper to compute formatted rate summary for a group of transactions
-const getRateSummary = (txs, type) => {
-  if (!txs || txs.length === 0) return { primary: '—', detail: null, isRange: false };
-  const rates = [...new Set(txs.map(t => Number(t.ratePerKg)).filter(r => !isNaN(r) && r > 0))];
-  if (rates.length === 0) return { primary: '—', detail: null, isRange: false };
-  
-  if (rates.length === 1) {
-    return {
-      primary: `${formatCurrency(rates[0])} / KG`,
-      detail: null,
-      isRange: false
-    };
-  }
-
-  const min = Math.min(...rates);
-  const max = Math.max(...rates);
-  const totalQty = txs.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
-  const totalAmt = txs.reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
-  const weightedAvg = totalQty > 0 ? (totalAmt / totalQty).toFixed(2) : min;
-
-  return {
-    primary: `₹${min} - ₹${max} / KG`,
-    detail: `Rates: ${rates.map(r => `₹${r}/KG`).join(', ')} (Avg: ₹${weightedAvg}/KG)`,
-    isRange: true
-  };
-};
 
 export default function App() {
   const { user, role, isAuthenticated, loading: authLoading, logout, authFetch } = useAuth();
@@ -82,10 +66,7 @@ export default function App() {
   const [catFilter, setCatFilter] = useState('All');
   
   // UI States
-  const [expandedCats, setExpandedCats] = useState({
-    Purchase: CATEGORY_COMBOS.reduce((acc, combo) => ({...acc, [combo.label]: true}), {}),
-    Sale: CATEGORY_COMBOS.reduce((acc, combo) => ({...acc, [combo.label]: true}), {})
-  });
+  const [expandedCats, setExpandedCats] = useState({});
   
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [txModalMode, setTxModalMode] = useState('add');
@@ -93,6 +74,8 @@ export default function App() {
   
   const [isDealModalOpen, setIsDealModalOpen] = useState(false);
   const [dealModalMode, setDealModalMode] = useState('edit'); // 'add', 'edit'
+  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
+  const [addCatForm, setAddCatForm] = useState({ category: 'Cat 2', materialType: 'Recycling', type: 'Purchase' });
   
   const [isTxDrawerOpen, setIsTxDrawerOpen] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
@@ -156,15 +139,18 @@ export default function App() {
   // Compute global summary for top cards
   const totalEnquiries = deals.filter(d => d.status === 'Enquiry').length;
   const totalConfirmed = deals.filter(d => d.status === 'Confirmed').length;
-  const globalTotalPurchase = transactions.filter(t => t.type === 'Purchase').reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
-  const globalTotalSale = transactions.filter(t => t.type === 'Sale').reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
+  const activeDealIds = new Set(deals.map(deal => deal.dealId || deal._id));
+  const validTransactions = transactions.filter(t => activeDealIds.has(t.dealId));
+  const globalTotalPurchase = validTransactions.filter(t => t.type === 'Purchase').reduce((sum, t) => sum + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
+  const globalTotalSale = validTransactions.filter(t => t.type === 'Sale').reduce((sum, t) => sum + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
   const netAmount = globalTotalSale - globalTotalPurchase;
 
   // Filter transactions for main view
   const visibleTransactions = useMemo(() => {
-    let filtered = transactions;
+    const activeDealIds = new Set(deals.map(deal => deal.dealId || deal._id));
+    let filtered = transactions.filter(t => activeDealIds.has(t.dealId));
     
-    // Summary Card Filters
+    // Summary Card Filters (Global)
     if (activeSummaryFilter === 'ENQUIRIES') {
       const enquiryDealIds = deals.filter(d => d.status === 'Enquiry').map(d => d.dealId);
       filtered = filtered.filter(t => enquiryDealIds.includes(t.dealId));
@@ -175,8 +161,6 @@ export default function App() {
       filtered = filtered.filter(t => t.type === 'Purchase');
     } else if (activeSummaryFilter === 'SALE') {
       filtered = filtered.filter(t => t.type === 'Sale');
-    } else if (activeSummaryFilter === 'ALL' && currentDealId) {
-      filtered = filtered.filter(t => t.dealId === currentDealId);
     }
 
     // Dropdown Filters
@@ -214,9 +198,10 @@ export default function App() {
 
   // Actions
   const toggleCategory = (type, cat) => {
+    const key = `${currentDealId}-${type}-${cat}`;
     setExpandedCats(prev => ({
       ...prev,
-      [type]: { ...prev[type], [cat]: !prev[type][cat] }
+      [key]: !prev[key]
     }));
   };
 
@@ -250,6 +235,24 @@ export default function App() {
       if (response.ok && data.success) {
         showToast(txModalMode === 'add' ? `Transaction added to ${txData.dealId}` : 'Transaction updated');
         setIsTxModalOpen(false);
+        // When adding a new transaction, also register its category on the Deal
+        if (txModalMode === 'add' && txData.dealId) {
+          const parentDeal = deals.find(d => d.dealId === txData.dealId);
+          if (parentDeal) {
+            const catName = txData.category;
+            const catType = txData.materialType || 'Recycling';
+            const existingCats = parentDeal.categories || [];
+            const alreadyHas = existingCats.some(c => c.name === catName && c.type === catType);
+            if (!alreadyHas && catName) {
+              try {
+                await authFetch(`/api/deals/${parentDeal._id}/categories`, {
+                  method: 'PATCH',
+                  body: JSON.stringify({ category: catName, materialType: catType }),
+                });
+              } catch(e) { /* non-critical, categories still derived from transactions */ }
+            }
+          }
+        }
         loadTradingData();
       } else {
         showToast(data.message || 'Error saving transaction.');
@@ -290,12 +293,71 @@ export default function App() {
   // Real REST API: Save Deal
   const saveDeal = async (dealData) => {
     try {
+      // If a deal is already open, New Deal adds Cat 2/3/EOL on the SAME page (no new DEAL id)
+      if (dealModalMode === 'add' && dealData.addToExistingDeal && currentDeal) {
+        const initTx = dealData.initialTransaction;
+        const catName = initTx?.category || 'Cat 1';
+        const catType = initTx?.materialType || 'Recycling';
+
+        const existingCats = currentDeal.categories || [];
+        const alreadyHas = existingCats.some(c => c.name === catName && c.type === catType);
+        if (!alreadyHas) {
+          const { response: catRes, data: catData } = await authFetch(`/api/deals/${currentDeal._id}/categories`, {
+            method: 'PATCH',
+            body: JSON.stringify({ category: catName, materialType: catType }),
+          });
+          if (!(catRes.ok && catData.success)) {
+            showToast(catData.message || 'Failed to add category.');
+            return;
+          }
+        }
+
+        if (initTx && initTx.quantity && initTx.ratePerKg) {
+          const { response: txRes, data: txData } = await authFetch('/api/transactions', {
+            method: 'POST',
+            body: JSON.stringify({
+              ...initTx,
+              dealId: currentDeal.dealId,
+              counterPartyId: dealData.counterPartyId || currentDeal.counterPartyId?._id || currentDeal.counterPartyId,
+              counterPartyAgentId: dealData.counterPartyAgentId || currentDeal.counterPartyAgentId?._id || currentDeal.counterPartyAgentId,
+              myAgentId: dealData.myAgentId || currentDeal.myAgentId?._id || currentDeal.myAgentId,
+              date: dealData.date || currentDeal.date,
+              status: (dealData.status || currentDeal.status) === 'Enquiry' ? 'Enquiry' : 'Completed',
+              totalAmount: calculateTransactionTotal(Number(initTx.quantity || 0), initTx.unit || 'MT', Number(initTx.ratePerKg || 0)).totalAmount,
+            }),
+          });
+          if (!(txRes.ok && txData.success)) {
+            showToast(txData.message || `${catName} — ${catType} added, but transaction failed.`);
+            setIsDealModalOpen(false);
+            loadTradingData();
+            return;
+          }
+        }
+
+        showToast(`${catName} — ${catType} added to ${currentDeal.dealId}`);
+        setIsDealModalOpen(false);
+        loadTradingData();
+        return;
+      }
+
       const url = dealModalMode === 'add' ? '/api/deals' : `/api/deals/${dealData._id || dealData.id}`;
       const method = dealModalMode === 'add' ? 'POST' : 'PUT';
 
+      // Enrich dealData.categories with the initial transaction category (if any)
+      let enrichedDealData = { ...dealData };
+      if (dealModalMode === 'add' && dealData.initialTransaction) {
+        const initCat = dealData.initialTransaction.category;
+        const initMatType = dealData.initialTransaction.materialType || 'Recycling';
+        const existingCats = enrichedDealData.categories || [];
+        const alreadyHasCat = existingCats.some(c => c.name === initCat && c.type === initMatType);
+        if (!alreadyHasCat && initCat) {
+          enrichedDealData.categories = [...existingCats, { name: initCat, type: initMatType }];
+        }
+      }
+
       const { response, data } = await authFetch(url, {
         method,
-        body: JSON.stringify(dealData),
+        body: JSON.stringify(enrichedDealData),
       });
 
       if (response.ok && data.success) {
@@ -306,22 +368,27 @@ export default function App() {
           // If deal creation included an initial transaction, create it now!
           if (dealData.initialTransaction) {
             try {
-              await authFetch('/api/transactions', {
+              const createdDeal = data.deal;
+              const { response: txRes, data: txData } = await authFetch('/api/transactions', {
                 method: 'POST',
                 body: JSON.stringify({
                   ...dealData.initialTransaction,
-                  dealId: data.deal.dealId,
-                  counterPartyId: dealData.counterPartyId,
-                  counterPartyAgentId: dealData.counterPartyAgentId,
-                  myAgentId: dealData.myAgentId,
+                  dealId: createdDeal.dealId,
+                  // Use IDs from the saved deal (handles newly auto-created parties)
+                  counterPartyId: createdDeal.counterPartyId?._id || createdDeal.counterPartyId || dealData.counterPartyId,
+                  counterPartyAgentId: createdDeal.counterPartyAgentId?._id || createdDeal.counterPartyAgentId || dealData.counterPartyAgentId,
+                  myAgentId: createdDeal.myAgentId?._id || createdDeal.myAgentId || dealData.myAgentId,
                   date: dealData.date,
                   status: dealData.status === 'Enquiry' ? 'Enquiry' : 'Completed',
-                  totalAmount: Number(dealData.initialTransaction.quantity || 0) * 1000 * Number(dealData.initialTransaction.ratePerKg || 0)
+                  totalAmount: calculateTransactionTotal(Number(dealData.initialTransaction.quantity || 0), dealData.initialTransaction.unit || 'MT', Number(dealData.initialTransaction.ratePerKg || 0)).totalAmount
                 })
               });
-              loadTradingData();
+              if (!(txRes.ok && txData.success)) {
+                showToast(txData.message || 'Deal created, but initial transaction failed. Please add Purchase/Sale manually.');
+              }
             } catch(e) {
               console.error("Failed to create initial transaction", e);
+              showToast('Deal created, but initial transaction failed. Please add Purchase/Sale manually.');
             }
           }
         }
@@ -331,6 +398,36 @@ export default function App() {
       }
     } catch (err) {
       showToast('Server error saving deal.');
+    }
+  };
+
+  // Add Cat 2 / Cat 3 / EOL etc. to the CURRENT deal (same page — does not create a new DEAL)
+  const addCategoryToCurrentDeal = async () => {
+    if (!currentDeal) return;
+    const { category, materialType, type } = addCatForm;
+    const existingCats = currentDeal.categories || [];
+    const alreadyHas = existingCats.some(c => c.name === category && c.type === materialType);
+    if (alreadyHas) {
+      showToast(`${category} — ${materialType} already exists on this deal`);
+      setIsAddCategoryOpen(false);
+      openTxModal('add', type, category, materialType);
+      return;
+    }
+    try {
+      const { response, data } = await authFetch(`/api/deals/${currentDeal._id}/categories`, {
+        method: 'PATCH',
+        body: JSON.stringify({ category, materialType }),
+      });
+      if (response.ok && data.success) {
+        showToast(`${category} — ${materialType} added to ${currentDeal.dealId}`);
+        setIsAddCategoryOpen(false);
+        await loadTradingData();
+        openTxModal('add', type, category, materialType);
+      } else {
+        showToast(data.message || 'Failed to add category.');
+      }
+    } catch (err) {
+      showToast('Server error adding category.');
     }
   };
 
@@ -706,7 +803,7 @@ export default function App() {
                     <span className={`badge ${currentDeal.status === 'Confirmed' ? 'badge-success' : currentDeal.status === 'Enquiry' ? 'badge-warning' : 'badge-primary'}`}>
                       {currentDeal.status}
                     </span>
-                    <span className="text-sm text-muted">({deals.length} deals in system)</span>
+                    <span className="text-sm text-muted">({deals.length} {deals.length === 1 ? 'deal' : 'deals'} in system)</span>
                   </div>
                   
                   <div className="deal-info-grid">
@@ -739,6 +836,18 @@ export default function App() {
                   {currentDeal.status === 'Enquiry' && (role === 'ADMIN' || role === 'MY_AGENT') && (
                     <button className="btn btn-outline" style={{ color: 'var(--success)', borderColor: 'var(--success)' }} onClick={() => updateDealStatus('Confirmed')}>
                       <CheckCircle size={16}/> Confirm Deal
+                    </button>
+                  )}
+
+                  {(role === 'ADMIN' || role === 'MY_AGENT') && (
+                    <button
+                      className="btn btn-outline"
+                      onClick={() => {
+                        setAddCatForm({ category: 'Cat 2', materialType: 'Recycling', type: 'Purchase' });
+                        setIsAddCategoryOpen(true);
+                      }}
+                    >
+                      <Plus size={16}/> Add Category
                     </button>
                   )}
                   
@@ -824,20 +933,46 @@ export default function App() {
             <div>
               <div className="column-header bg-purchase" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2>PURCHASE</h2>
-                {(role === 'ADMIN' || role === 'MY_AGENT') && (
-                  <button className="btn btn-outline" style={{ background: '#fff', color: '#0284c7', padding: '4px 10px', fontSize: '0.75rem', borderColor: 'transparent' }} onClick={() => openTxModal('add', 'Purchase', CATEGORIES[0])}>
-                    <Plus size={14} style={{ display: 'inline', marginRight: '4px' }}/> Add Purchase
-                  </button>
-                )}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {(role === 'ADMIN' || role === 'MY_AGENT') && currentDeal && (
+                    <button className="btn btn-outline" style={{ background: '#fff', color: '#0284c7', padding: '4px 10px', fontSize: '0.75rem', borderColor: 'transparent' }} onClick={() => {
+                      setAddCatForm({ category: 'Cat 2', materialType: 'Recycling', type: 'Purchase' });
+                      setIsAddCategoryOpen(true);
+                    }}>
+                      <Plus size={14} style={{ display: 'inline', marginRight: '4px' }}/> Add Category
+                    </button>
+                  )}
+                  {(role === 'ADMIN' || role === 'MY_AGENT') && (
+                    <button className="btn btn-outline" style={{ background: '#fff', color: '#0284c7', padding: '4px 10px', fontSize: '0.75rem', borderColor: 'transparent' }} onClick={() => openTxModal('add', 'Purchase', CATEGORIES[0])}>
+                      <Plus size={14} style={{ display: 'inline', marginRight: '4px' }}/> Add Purchase
+                    </button>
+                  )}
+                </div>
               </div>
               
-              {CATEGORY_COMBOS.filter(combo => visibleTransactions.some(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType)).map(combo => {
+              {CATEGORY_COMBOS.filter(combo => {
+                  const dealCats = (deals.find(d => d.dealId === currentDealId)?.categories || []);
+                  const hasDealCat = dealCats.some(cat => cat.name === combo.category && cat.type === combo.materialType);
+                  // Only show this combo if deal/tx matches BOTH category AND materialType (Recycling ≠ EOL)
+                  const hasDealTx = visibleTransactions.some(t =>
+                    t.dealId === currentDealId &&
+                    t.category === combo.category &&
+                    (t.materialType || 'Recycling') === combo.materialType
+                  );
+                  return hasDealCat || hasDealTx;
+                }).map(combo => {
                 const catLabel = combo.label;
-                const isExpanded = expandedCats.Purchase[catLabel];
-                const txs = purchaseTxs.filter(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType);
-                const totalQty = txs.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
-                const totalAmt = txs.reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
-                const rateSummary = getRateSummary(txs, 'Purchase');
+                const catKey = `${currentDealId}-Purchase-${catLabel}`;
+                const isExpanded = !!expandedCats[catKey];
+                const txs = purchaseTxs.filter(t =>
+                  t.dealId === currentDealId &&
+                  t.category === combo.category &&
+                  (t.materialType || 'Recycling') === combo.materialType
+                );
+                const aggCat = aggregateTransactions(txs);
+                const totalQty = aggCat.totalPurchaseQtyMT;
+                const totalAmt = aggCat.totalPurchaseValue;
+                const rateSummary = getRateSummaryForTransactions(txs);
 
                 return (
                   <div key={`purchase-${catLabel}`} className="category-group">
@@ -861,29 +996,28 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* Compact Summary Directly Under Category Header (Req 33) */}
-                    {txs.length > 0 && (
-                      <div className="category-compact-summary">
-                        <div className="cat-summary-col">
-                          <span className="cat-summary-label">Total Quantity:</span>
-                          <span className="cat-summary-val font-semibold">{totalQty.toLocaleString()} MT</span>
-                        </div>
-                        <div className="cat-summary-col">
-                          <span className="cat-summary-label">Purchase Rate:</span>
-                          <span className="cat-summary-val font-bold text-primary">{rateSummary.primary}</span>
-                          {rateSummary.detail && (
-                            <span className="text-muted" style={{ fontSize: '0.7rem' }}>{rateSummary.detail}</span>
-                          )}
-                        </div>
-                        <div className="cat-summary-col">
-                          <span className="cat-summary-label">Total Purchase:</span>
-                          <span className="cat-summary-val font-bold currency-text">{formatCurrency(totalAmt)}</span>
-                        </div>
-                      </div>
-                    )}
-                    
                     {isExpanded && (
                       <div className="transaction-list">
+                        {/* Compact Summary Directly Under Category Header (Req 33) */}
+                        {txs.length > 0 && (
+                          <div className="category-compact-summary" style={{ marginBottom: '16px' }}>
+                            <div className="cat-summary-col">
+                              <span className="cat-summary-label">Total Quantity:</span>
+                              <span className="cat-summary-val font-semibold">{totalQty.toLocaleString()} MT</span>
+                            </div>
+                            <div className="cat-summary-col">
+                              <span className="cat-summary-label">Purchase Rate:</span>
+                              <span className="cat-summary-val font-bold text-primary">{rateSummary.primary}</span>
+                              {rateSummary.detail && (
+                                <span className="text-muted" style={{ fontSize: '0.7rem' }}>{rateSummary.detail}</span>
+                              )}
+                            </div>
+                            <div className="cat-summary-col">
+                              <span className="cat-summary-label">Total Purchase:</span>
+                              <span className="cat-summary-val font-bold currency-text">{formatCurrency(totalAmt)}</span>
+                            </div>
+                          </div>
+                        )}
                         {txs.length === 0 ? (
                           <div className="empty-state">
                             <p>No transactions added yet.</p>
@@ -919,20 +1053,46 @@ export default function App() {
             <div>
               <div className="column-header bg-sale" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2>SALE</h2>
-                {(role === 'ADMIN' || role === 'MY_AGENT') && (
-                  <button className="btn btn-outline" style={{ background: '#fff', color: '#7c3aed', padding: '4px 10px', fontSize: '0.75rem', borderColor: 'transparent' }} onClick={() => openTxModal('add', 'Sale', CATEGORIES[0])}>
-                    <Plus size={14} style={{ display: 'inline', marginRight: '4px' }}/> Add Sale
-                  </button>
-                )}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {(role === 'ADMIN' || role === 'MY_AGENT') && currentDeal && (
+                    <button className="btn btn-outline" style={{ background: '#fff', color: '#7c3aed', padding: '4px 10px', fontSize: '0.75rem', borderColor: 'transparent' }} onClick={() => {
+                      setAddCatForm({ category: 'Cat 2', materialType: 'Recycling', type: 'Sale' });
+                      setIsAddCategoryOpen(true);
+                    }}>
+                      <Plus size={14} style={{ display: 'inline', marginRight: '4px' }}/> Add Category
+                    </button>
+                  )}
+                  {(role === 'ADMIN' || role === 'MY_AGENT') && (
+                    <button className="btn btn-outline" style={{ background: '#fff', color: '#7c3aed', padding: '4px 10px', fontSize: '0.75rem', borderColor: 'transparent' }} onClick={() => openTxModal('add', 'Sale', CATEGORIES[0])}>
+                      <Plus size={14} style={{ display: 'inline', marginRight: '4px' }}/> Add Sale
+                    </button>
+                  )}
+                </div>
               </div>
               
-              {CATEGORY_COMBOS.filter(combo => visibleTransactions.some(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType)).map(combo => {
+              {CATEGORY_COMBOS.filter(combo => {
+                  const dealCats = (deals.find(d => d.dealId === currentDealId)?.categories || []);
+                  const hasDealCat = dealCats.some(cat => cat.name === combo.category && cat.type === combo.materialType);
+                  // Only show this combo if deal/tx matches BOTH category AND materialType (Recycling ≠ EOL)
+                  const hasDealTx = visibleTransactions.some(t =>
+                    t.dealId === currentDealId &&
+                    t.category === combo.category &&
+                    (t.materialType || 'Recycling') === combo.materialType
+                  );
+                  return hasDealCat || hasDealTx;
+                }).map(combo => {
                 const catLabel = combo.label;
-                const isExpanded = expandedCats.Sale[catLabel];
-                const txs = saleTxs.filter(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType);
-                const totalQty = txs.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
-                const totalAmt = txs.reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
-                const rateSummary = getRateSummary(txs, 'Sale');
+                const catKey = `${currentDealId}-Sale-${catLabel}`;
+                const isExpanded = !!expandedCats[catKey];
+                const txs = saleTxs.filter(t =>
+                  t.dealId === currentDealId &&
+                  t.category === combo.category &&
+                  (t.materialType || 'Recycling') === combo.materialType
+                );
+                const aggCat = aggregateTransactions(txs);
+                const totalQty = aggCat.totalSaleQtyMT;
+                const totalAmt = aggCat.totalSaleValue;
+                const rateSummary = getRateSummaryForTransactions(txs);
 
                 return (
                   <div key={`sale-${catLabel}`} className="category-group">
@@ -956,29 +1116,28 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* Compact Summary Directly Under Category Header */}
-                    {txs.length > 0 && (
-                      <div className="category-compact-summary" style={{ background: '#f5f3ff', borderColor: '#ddd6fe' }}>
-                        <div className="cat-summary-col">
-                          <span className="cat-summary-label">Total Quantity:</span>
-                          <span className="cat-summary-val font-semibold">{totalQty.toLocaleString()} MT</span>
-                        </div>
-                        <div className="cat-summary-col">
-                          <span className="cat-summary-label">Sale Rate:</span>
-                          <span className="cat-summary-val font-bold text-purple-600">{rateSummary.primary}</span>
-                          {rateSummary.detail && (
-                            <span className="text-muted" style={{ fontSize: '0.7rem' }}>{rateSummary.detail}</span>
-                          )}
-                        </div>
-                        <div className="cat-summary-col">
-                          <span className="cat-summary-label">Total Sale:</span>
-                          <span className="cat-summary-val font-bold currency-text text-purple-600">{formatCurrency(totalAmt)}</span>
-                        </div>
-                      </div>
-                    )}
-                    
                     {isExpanded && (
                       <div className="transaction-list">
+                        {/* Compact Summary Directly Under Category Header */}
+                        {txs.length > 0 && (
+                          <div className="category-compact-summary" style={{ background: '#f5f3ff', borderColor: '#ddd6fe', marginBottom: '16px' }}>
+                            <div className="cat-summary-col">
+                              <span className="cat-summary-label">Total Quantity:</span>
+                              <span className="cat-summary-val font-semibold">{totalQty.toLocaleString()} MT</span>
+                            </div>
+                            <div className="cat-summary-col">
+                              <span className="cat-summary-label">Sale Rate:</span>
+                              <span className="cat-summary-val font-bold text-purple-600">{rateSummary.primary}</span>
+                              {rateSummary.detail && (
+                                <span className="text-muted" style={{ fontSize: '0.7rem' }}>{rateSummary.detail}</span>
+                              )}
+                            </div>
+                            <div className="cat-summary-col">
+                              <span className="cat-summary-label">Total Sale:</span>
+                              <span className="cat-summary-val font-bold currency-text text-purple-600">{formatCurrency(totalAmt)}</span>
+                            </div>
+                          </div>
+                        )}
                         {txs.length === 0 ? (
                           <div className="empty-state">
                             <p>No transactions added yet.</p>
@@ -1115,8 +1274,8 @@ export default function App() {
                 filteredPanelDeals.map(deal => {
                   const cp = counterParties.find(c => c._id === deal.counterPartyId || c._id === deal.counterPartyId?._id);
                   const dealTxs = transactions.filter(t => t.dealId === deal.dealId);
-                  const totalPurchase = dealTxs.filter(t => t.type === 'Purchase').reduce((s, t) => s + (Number(t.totalAmount) || 0), 0);
-                  const totalSale = dealTxs.filter(t => t.type === 'Sale').reduce((s, t) => s + (Number(t.totalAmount) || 0), 0);
+                  const totalPurchase = dealTxs.filter(t => t.type === 'Purchase').reduce((s, t) => s + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
+                  const totalSale = dealTxs.filter(t => t.type === 'Sale').reduce((s, t) => s + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
                   const isCurrent = deal.dealId === currentDealId;
 
                   const statusColors = {
@@ -1204,10 +1363,66 @@ export default function App() {
           onClose={() => setIsDealModalOpen(false)}
           mode={dealModalMode}
           initialData={dealModalMode === 'edit' ? currentDeal : null}
+          currentDeal={dealModalMode === 'add' ? currentDeal : null}
           counterParties={counterParties}
           agents={agents}
           onSubmit={saveDeal}
         />
+      )}
+
+      {isAddCategoryOpen && currentDeal && (
+        <div className="overlay" style={{ zIndex: 1000 }}>
+          <div className="modal" style={{ maxWidth: '420px' }}>
+            <div className="modal-header">
+              <h3>Add Category — {currentDeal.dealId}</h3>
+              <button className="btn-icon" onClick={() => setIsAddCategoryOpen(false)}><X size={20} /></button>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                Category will be added on this same deal page. A new deal will not be created.
+              </p>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label className="form-label">Category</label>
+                  <select
+                    className="form-select"
+                    value={addCatForm.category}
+                    onChange={e => setAddCatForm({ ...addCatForm, category: e.target.value })}
+                  >
+                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Material Type</label>
+                  <select
+                    className="form-select"
+                    value={addCatForm.materialType}
+                    onChange={e => setAddCatForm({ ...addCatForm, materialType: e.target.value })}
+                  >
+                    {MATERIAL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="form-group full-width">
+                  <label className="form-label">First Transaction Type</label>
+                  <select
+                    className="form-select"
+                    value={addCatForm.type}
+                    onChange={e => setAddCatForm({ ...addCatForm, type: e.target.value })}
+                  >
+                    <option value="Purchase">Purchase</option>
+                    <option value="Sale">Sale</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
+                <button type="button" className="btn btn-outline" onClick={() => setIsAddCategoryOpen(false)}>Cancel</button>
+                <button type="button" className="btn btn-primary" onClick={addCategoryToCurrentDeal}>
+                  Add to This Deal
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {isTxDrawerOpen && selectedTx && (
@@ -1354,16 +1569,20 @@ function DealRateSummary({ deal, transactions }) {
   const saleTxs = dealTxs.filter(t => t.type === 'Sale');
 
   const totalPurchaseQty = purchaseTxs.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
-  const totalPurchaseAmt = purchaseTxs.reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
-  const purchaseRateSummary = getRateSummary(purchaseTxs, 'Purchase');
+  const totalPurchaseAmt = purchaseTxs.reduce((sum, t) => sum + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
+  const purchaseRateSummary = getRateSummaryForTransactions(purchaseTxs);
 
   const totalSaleQty = saleTxs.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
-  const totalSaleAmt = saleTxs.reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
-  const saleRateSummary = getRateSummary(saleTxs, 'Sale');
+  const totalSaleAmt = saleTxs.reduce((sum, t) => sum + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
+  const saleRateSummary = getRateSummaryForTransactions(saleTxs);
 
   const dealNetAmount = totalSaleAmt - totalPurchaseAmt;
 
-  const activeCombos = CATEGORY_COMBOS.filter(combo => dealTxs.some(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType));
+  const activeCombos = CATEGORY_COMBOS.filter(combo => {
+    const hasTx = dealTxs.some(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType);
+    const hasDealCat = (deal.categories || []).some(c => c.name === combo.category && c.type === combo.materialType);
+    return hasTx || hasDealCat;
+  });
 
   return (
     <div className="deal-rate-summary-card">
@@ -1476,16 +1695,22 @@ function DealRateSummary({ deal, transactions }) {
           <tbody>
             {activeCombos.map(combo => {
               const comboLabel = combo.label;
-              const pTxs = purchaseTxs.filter(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType);
-              const sTxs = saleTxs.filter(t => t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType);
+              const pTxs = purchaseTxs.filter(t =>
+                t.category === combo.category &&
+                (t.materialType || 'Recycling') === combo.materialType
+              );
+              const sTxs = saleTxs.filter(t =>
+                t.category === combo.category &&
+                (t.materialType || 'Recycling') === combo.materialType
+              );
               const pQty = pTxs.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
-              const pAmt = pTxs.reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
+              const pAmt = pTxs.reduce((sum, t) => sum + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
               const sQty = sTxs.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
-              const sAmt = sTxs.reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
+              const sAmt = sTxs.reduce((sum, t) => sum + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
               const netCat = sAmt - pAmt;
 
-              const pRate = getRateSummary(pTxs, 'Purchase');
-              const sRate = getRateSummary(sTxs, 'Sale');
+              const pRate = getRateSummaryForTransactions(pTxs);
+              const sRate = getRateSummaryForTransactions(sTxs);
 
               return (
                 <tr key={comboLabel}>
@@ -1531,7 +1756,7 @@ function TransactionCard({ tx, counterParty, counterAgent, myAgent, currentUserR
       <div className="tx-details-prominent">
         <div className="tx-prominent-item">
           <span className="prominent-label">Quantity:</span>
-          <span className="prominent-value">{Number(tx.quantity).toLocaleString()} MT</span>
+          <span className="prominent-value">{Number(tx.quantity).toLocaleString()} {tx.unit || 'MT'}</span>
         </div>
 
         <div className={`tx-prominent-item rate-highlight ${isPurchase ? 'purchase' : 'sale'}`}>
@@ -1539,7 +1764,7 @@ function TransactionCard({ tx, counterParty, counterAgent, myAgent, currentUserR
             {isPurchase ? 'Purchase Rate:' : 'Sale Rate:'}
           </span>
           <span className="prominent-rate-value">
-            {formatCurrency(tx.ratePerKg)} / kg
+            {formatRate(tx.ratePerKg)}
           </span>
         </div>
 
@@ -1604,7 +1829,7 @@ function TransactionCard({ tx, counterParty, counterAgent, myAgent, currentUserR
 function TransactionModal({ isOpen, onClose, mode, initialData, counterParties, agents, dealId, onSubmit }) {
   const allDeals = []; // not needed here since dealId is passed
   const [formData, setFormData] = useState({
-    dealId: dealId,
+    dealId: initialData?.dealId || dealId,
     type: initialData?.type || 'Purchase',
     category: initialData?.category || 'Cat 1',
     materialType: initialData?.materialType || 'Recycling',
@@ -1612,17 +1837,18 @@ function TransactionModal({ isOpen, onClose, mode, initialData, counterParties, 
     counterPartyAgentId: initialData?.counterPartyAgentId?.name || (agents.find(a => a._id === initialData?.counterPartyAgentId)?.name) || '',
     myAgentId: initialData?.myAgentId?.name || (agents.find(a => a._id === initialData?.myAgentId)?.name) || '',
     quantity: initialData?.quantity !== undefined ? initialData.quantity : '',
+    unit: initialData?.unit || 'MT',
     ratePerKg: initialData?.ratePerKg !== undefined ? initialData.ratePerKg : '',
     notes: initialData?.notes || '',
     status: initialData?.status || 'Confirmed'
   });
 
   const totalAmount = useMemo(() => {
-    const q = Number(formData.quantity); // in MT
-    const r = Number(formData.ratePerKg);
-    if (!isNaN(q) && !isNaN(r) && q > 0 && r > 0) return q * 1000 * r;
+    const q = Number(formData.quantity);
+    const r = parseFloat(formData.ratePerKg);
+    if (!isNaN(q) && !isNaN(r) && q > 0 && r > 0) return calculateTransactionTotal(q, formData.unit, r).totalAmount;
     return 0;
-  }, [formData.quantity, formData.ratePerKg]);
+  }, [formData.quantity, formData.unit, formData.ratePerKg]);
 
   if (!isOpen) return null;
 
@@ -1651,7 +1877,8 @@ function TransactionModal({ isOpen, onClose, mode, initialData, counterParties, 
               counterPartyAgentId: matchedCpAgent ? matchedCpAgent._id : formData.counterPartyAgentId,
               myAgentId: matchedMyAgent ? matchedMyAgent._id : formData.myAgentId,
               quantity: Number(formData.quantity),
-              ratePerKg: Number(formData.ratePerKg),
+              unit: formData.unit,
+              ratePerKg: parseFloat(formData.ratePerKg),
               totalAmount,
             });
           }}>
@@ -1767,7 +1994,7 @@ function TransactionModal({ isOpen, onClose, mode, initialData, counterParties, 
                 </label>
                 {formData.quantity && formData.ratePerKg && (
                   <span className="badge badge-primary">
-                    {Number(formData.quantity).toLocaleString()} MT × 1000 × ₹{Number(formData.ratePerKg).toFixed(2)}/kg
+                    {Number(formData.quantity).toLocaleString()} {formData.unit} × {formData.unit === 'MT' ? '1000 × ' : ''}₹{parseFloat(formData.ratePerKg)}/KG
                   </span>
                 )}
               </div>
@@ -1807,22 +2034,38 @@ function TransactionModal({ isOpen, onClose, mode, initialData, counterParties, 
 // DEAL MODAL COMPONENT
 // ----------------------------------------------------
 
-function DealModal({ isOpen, onClose, mode, initialData, counterParties, agents, onSubmit }) {
+function DealModal({ isOpen, onClose, mode, initialData, currentDeal, counterParties, agents, onSubmit }) {
+  // When a deal is already open, New Deal adds category on the SAME page
+  const addingToCurrent = mode === 'add' && !!currentDeal;
+
+  const existingCombos = (currentDeal?.categories || []).map(c => `${c.name}|${c.type}`);
+  const nextCombo = CATEGORY_COMBOS.find(c => !existingCombos.includes(`${c.category}|${c.materialType}`)) || CATEGORY_COMBOS[0];
+
   const [formData, setFormData] = useState({
-    status: initialData?.status || 'Enquiry',
-    date: initialData?.date || new Date().toISOString(),
-    counterPartyId: initialData?.counterPartyId?.name || (counterParties.find(cp => cp._id === initialData?.counterPartyId)?.name) || '',
-    counterPartyAgentId: initialData?.counterPartyAgentId?.name || (agents.find(a => a._id === initialData?.counterPartyAgentId)?.name) || '',
-    myAgentId: initialData?.myAgentId?.name || (agents.find(a => a._id === initialData?.myAgentId)?.name) || '',
+    status: initialData?.status || currentDeal?.status || 'Enquiry',
+    date: initialData?.date || currentDeal?.date || new Date().toISOString(),
+    counterPartyId: initialData?.counterPartyId?.name
+      || currentDeal?.counterPartyId?.name
+      || (counterParties.find(cp => cp._id === (initialData?.counterPartyId || currentDeal?.counterPartyId))?.name)
+      || '',
+    counterPartyAgentId: initialData?.counterPartyAgentId?.name
+      || currentDeal?.counterPartyAgentId?.name
+      || (agents.find(a => a._id === (initialData?.counterPartyAgentId || currentDeal?.counterPartyAgentId))?.name)
+      || '',
+    myAgentId: initialData?.myAgentId?.name
+      || currentDeal?.myAgentId?.name
+      || (agents.find(a => a._id === (initialData?.myAgentId || currentDeal?.myAgentId))?.name)
+      || '',
     notes: initialData?.notes || '',
   });
 
   const [includeInitialTx, setIncludeInitialTx] = useState(mode === 'add');
   const [txData, setTxData] = useState({
     type: 'Purchase',
-    category: CATEGORIES[0],
-    materialType: MATERIAL_TYPES[0],
+    category: addingToCurrent ? nextCombo.category : CATEGORIES[0],
+    materialType: addingToCurrent ? nextCombo.materialType : MATERIAL_TYPES[0],
     quantity: '',
+    unit: 'MT',
     ratePerKg: '',
   });
 
@@ -1832,7 +2075,13 @@ function DealModal({ isOpen, onClose, mode, initialData, counterParties, agents,
     <div className="overlay" style={{ zIndex: 1000 }}>
       <div className="modal" style={{ maxWidth: '600px' }}>
         <div className="modal-header">
-          <h3>{mode === 'edit' ? `Edit Deal — ${initialData.dealId}` : 'Create New Deal'}</h3>
+          <h3>
+            {mode === 'edit'
+              ? `Edit Deal — ${initialData.dealId}`
+              : addingToCurrent
+                ? `Create New Deal — ${currentDeal.dealId}`
+                : 'Create New Deal'}
+          </h3>
           <button className="btn-icon" onClick={onClose}><X size={20} /></button>
         </div>
         <div className="modal-body" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
@@ -1850,7 +2099,8 @@ function DealModal({ isOpen, onClose, mode, initialData, counterParties, agents,
               counterPartyId: matchedCp ? matchedCp._id : formData.counterPartyId,
               counterPartyAgentId: matchedCpAgent ? matchedCpAgent._id : formData.counterPartyAgentId,
               myAgentId: matchedMyAgent ? matchedMyAgent._id : formData.myAgentId,
-              initialTransaction: (mode === 'add' && includeInitialTx) ? txData : null
+              addToExistingDeal: addingToCurrent,
+              initialTransaction: (mode === 'add' && includeInitialTx) ? txData : (addingToCurrent ? txData : null)
             });
           }}>
             <div className="form-group full-width">
@@ -1907,6 +2157,7 @@ function DealModal({ isOpen, onClose, mode, initialData, counterParties, agents,
             
             {mode === 'add' && (
               <div className="form-group full-width" style={{ marginTop: '16px', paddingTop: '20px', borderTop: '1px solid var(--border)' }}>
+                {!addingToCurrent && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
                   <input 
                     type="checkbox" 
@@ -1919,8 +2170,9 @@ function DealModal({ isOpen, onClose, mode, initialData, counterParties, agents,
                     Add Initial Transaction Detail
                   </label>
                 </div>
+                )}
                 
-                {includeInitialTx && (
+                {(includeInitialTx || addingToCurrent) && (
                   <div style={{ 
                     background: 'linear-gradient(to right, #f8fafc, #f1f5f9)', 
                     padding: '20px', 
@@ -1952,17 +2204,29 @@ function DealModal({ isOpen, onClose, mode, initialData, counterParties, agents,
                     </div>
                     
                     <div className="form-group">
-                      <label className="form-label">Quantity (MT)</label>
-                      <input 
-                        type="number" 
-                        className="form-input" 
-                        placeholder="e.g. 10" 
-                        value={txData.quantity} 
-                        onChange={e => setTxData({...txData, quantity: e.target.value})}
-                        required={includeInitialTx}
-                        min="0.001"
-                        step="0.001"
-                      />
+                      <label className="form-label">Quantity</label>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input 
+                          type="number" 
+                          className="form-input" 
+                          placeholder="e.g. 10" 
+                          value={txData.quantity} 
+                          onChange={e => setTxData({...txData, quantity: e.target.value})}
+                          required={includeInitialTx || addingToCurrent}
+                          min="0.001"
+                          step="0.001"
+                          style={{ flex: 1 }}
+                        />
+                        <select 
+                          className="form-select" 
+                          value={txData.unit} 
+                          onChange={e => setTxData({...txData, unit: e.target.value})}
+                          style={{ width: '80px' }}
+                        >
+                          <option value="MT">MT</option>
+                          <option value="KG">KG</option>
+                        </select>
+                      </div>
                     </div>
                     
                     <div className="form-group">
@@ -1973,7 +2237,7 @@ function DealModal({ isOpen, onClose, mode, initialData, counterParties, agents,
                         placeholder="e.g. 150" 
                         value={txData.ratePerKg} 
                         onChange={e => setTxData({...txData, ratePerKg: e.target.value})}
-                        required={includeInitialTx}
+                        required={includeInitialTx || addingToCurrent}
                         min="0.01" step="0.01"
                       />
                     </div>
@@ -2002,7 +2266,7 @@ function DealModal({ isOpen, onClose, mode, initialData, counterParties, agents,
                           color: txData.type === 'Purchase' ? '#0369a1' : '#6d28d9', 
                           fontWeight: 800 
                         }}>
-                          {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format((Number(txData.quantity) || 0) * 1000 * (Number(txData.ratePerKg) || 0))}
+                          {(() => { try { return formatCurrency(calculateTransactionTotal(Number(txData.quantity) || 0, txData.unit || 'MT', Number(txData.ratePerKg) || 0).totalAmount); } catch(e) { return '₹0'; } })()}
                         </span>
                       </div>
                     </div>
@@ -2102,12 +2366,12 @@ function TransactionDrawer({ isOpen, onClose, tx, counterParty, counterAgent, my
           <h4 style={{ margin: '20px 0 12px 0' }}>Financials</h4>
           <div className="detail-row">
             <span className="detail-label">Quantity</span>
-            <span className="detail-value">{Number(tx.quantity).toLocaleString()} MT</span>
+            <span className="detail-value">{Number(tx.quantity).toLocaleString()} {tx.unit || 'MT'}</span>
           </div>
           <div className="detail-row">
             <span className="detail-label">{isPurchase ? 'Purchase Rate / kg' : 'Sale Rate / kg'}</span>
             <span className={`detail-value font-bold ${isPurchase ? 'text-primary' : 'text-purple-600'}`}>
-              {formatCurrency(tx.ratePerKg)} / kg
+              {formatRate(tx.ratePerKg)}
             </span>
           </div>
           <div className="detail-row" style={{ backgroundColor: 'var(--background)', padding: '12px', borderRadius: 'var(--radius-sm)', marginTop: '8px' }}>
@@ -2218,8 +2482,8 @@ function ProfileDrawer({
     return historySortOrder === 'Newest' ? dateB - dateA : dateA - dateB;
   });
 
-  const totalPurchaseValue = profile.totalPurchaseValue || allRelatedTxs.filter(t => t.type === 'Purchase').reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
-  const totalSaleValue = profile.totalSaleValue || allRelatedTxs.filter(t => t.type === 'Sale').reduce((sum, t) => sum + (Number(t.totalAmount) || 0), 0);
+  const totalPurchaseValue = profile.totalPurchaseValue || allRelatedTxs.filter(t => t.type === 'Purchase').reduce((sum, t) => sum + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
+  const totalSaleValue = profile.totalSaleValue || allRelatedTxs.filter(t => t.type === 'Sale').reduce((sum, t) => sum + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
   const totalDealsCount = profile.dealsManaged || profile.totalDeals || new Set(allRelatedTxs.map(t => t.dealId)).size;
   const activeDealsCount = profile.activeDeals || 4;
   const completedDealsCount = profile.completedDeals || 12;
@@ -2439,7 +2703,7 @@ function ProfileDrawer({
                 </div>
                 <div className="detail-row">
                   <span className="detail-label">{currentDealTx.type === 'Purchase' ? 'Purchase Rate' : 'Sale Rate'}</span>
-                  <span className="detail-value font-semibold">{formatCurrency(currentDealTx.ratePerKg || 42)}/KG</span>
+                  <span className="detail-value font-semibold">{formatRate(currentDealTx.ratePerKg || 42)}</span>
                 </div>
                 <div className="detail-row" style={{ marginTop: '8px', paddingTop: '10px', borderTop: '1px dashed var(--border)' }}>
                   <span className="detail-label font-bold">{currentDealTx.type === 'Purchase' ? 'Total Purchase' : 'Total Sale'}</span>
@@ -2566,11 +2830,11 @@ function ProfileDrawer({
                       <div className="deal-history-grid">
                         <div>
                           <span className="text-muted">Quantity:</span>
-                          <div className="font-semibold">{Number(tx.quantity).toLocaleString()} MT</div>
+                          <div className="font-semibold">{Number(tx.quantity).toLocaleString()} {tx.unit || 'MT'}</div>
                         </div>
                         <div>
                           <span className="text-muted">{tx.type === 'Purchase' ? 'Purchase Rate:' : 'Sale Rate:'}</span>
-                          <div className="font-semibold">{formatCurrency(tx.ratePerKg)}/KG</div>
+                          <div className="font-semibold">{formatRate(tx.ratePerKg)}</div>
                         </div>
                         <div>
                           <span className="text-muted">{tx.type === 'Purchase' ? 'Total Purchase:' : 'Total Sale:'}</span>
