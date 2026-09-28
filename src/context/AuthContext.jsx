@@ -69,7 +69,13 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify({ identifier, password }),
       });
 
-      const data = await res.json();
+      let data = {};
+      try {
+        data = await res.json();
+      } catch {
+        setAuthError('Backend not reachable. Deploy as Web Service (not Static Site) and ensure /api is running.');
+        return { success: false, message: 'Backend not reachable' };
+      }
 
       if (!res.ok || !data.success) {
         setAuthError(data.message || 'Login failed');
@@ -81,7 +87,7 @@ export const AuthProvider = ({ children }) => {
       setUser(data.user);
       return { success: true, user: data.user };
     } catch (err) {
-      const msg = 'Network error or backend unreachable.';
+      const msg = 'Network error or backend unreachable. Start the server or check your deploy settings.';
       setAuthError(msg);
       return { success: false, message: msg };
     }

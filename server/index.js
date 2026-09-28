@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { connectDB } from './config/db.js';
 import { seedDatabase } from './seed.js';
@@ -20,7 +21,8 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const isProduction = process.env.NODE_ENV === 'production';
+const distPath = path.join(__dirname, '..', 'dist');
+const hasFrontendBuild = fs.existsSync(distPath);
 
 // Middleware
 app.use(cors({
@@ -47,12 +49,11 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Serve React Frontend in Production
-if (isProduction) {
-  const distPath = path.join(__dirname, '..', 'dist');
+// Serve React frontend whenever dist/ exists (Render / production)
+if (hasFrontendBuild) {
   app.use(express.static(distPath));
-  // For React Router - send all non-API requests to index.html
-  app.get('*', (req, res) => {
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
     res.sendFile(path.join(distPath, 'index.html'));
   });
   console.log(`Serving static frontend from: ${distPath}`);
@@ -72,9 +73,10 @@ const startServer = async () => {
   try {
     await connectDB();
     await seedDatabase();
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on port ${PORT}`);
       console.log(`Mode: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`Frontend build: ${hasFrontendBuild ? 'yes' : 'no'}`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);
@@ -83,4 +85,3 @@ const startServer = async () => {
 };
 
 startServer();
-

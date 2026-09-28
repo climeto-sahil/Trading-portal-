@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: trading-portal
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node server/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false

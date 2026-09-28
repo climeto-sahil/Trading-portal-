@@ -1,7 +1,54 @@
 # ==========================================
+# Dependencies
+# ==========================================
+node_modules/
+.pnp
+.pnp.js
+.pnp.cjs
+
+# ==========================================
+# Build / cache
+# ==========================================
+dist/
+dist-ssr/
+build/
+out/
+.vite/
+.cache/
+*.tsbuildinfo
+
+# ==========================================
+# Environment / secrets (NEVER commit)
+# Keep *.example files tracked
+# ==========================================
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# ==========================================
+# Local / runtime data (deploy must start clean)
+# ==========================================
+local_database.json
+*_database.json
+deal_error_log.txt
+*_error_log.txt
+*.sqlite
+*.db
+
+# ==========================================
+# One-off / scratch scripts
+# ==========================================
+patch_*.cjs
+patch_*.js
+migrate_*.cjs
+migrate_*.js
+test_calculations.js
+
+# ==========================================
 # Logs
 # ==========================================
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -10,59 +57,41 @@ pnpm-debug.log*
 lerna-debug.log*
 
 # ==========================================
-# Dependencies
+# Test / coverage
 # ==========================================
-node_modules
-.pnp
-.pnp.js
+coverage/
+.nyc_output/
 
 # ==========================================
-# Build output
-# ==========================================
-dist
-dist-ssr
-build
-out
-
-# ==========================================
-# Environment Variables (NEVER COMMIT THESE)
-# ==========================================
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# ==========================================
-# Local Database / In-Memory Persistence
-# ==========================================
-local_database.json
-
-# ==========================================
-# Editor directories and files
+# Editor / OS
 # ==========================================
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
-.idea
+.idea/
 .DS_Store
 Thumbs.db
+Desktop.ini
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
 .eslintcache
+.oxlintcache
 
 # ==========================================
-# Misc
+# Cursor / local agent
+# ==========================================
+.cursor/
+.claude/
+
+# ==========================================
+# Misc / secrets
 # ==========================================
 *.pem
-coverage
-.next/
-
-
-
-
-
-
+*.key
+*.p12
+*.crt
+.vercel
+.netlify
