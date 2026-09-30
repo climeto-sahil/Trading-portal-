@@ -2060,6 +2060,7 @@ function DealModal({ isOpen, onClose, mode, initialData, currentDeal, counterPar
   });
 
   const [includeInitialTx, setIncludeInitialTx] = useState(mode === 'add');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [txData, setTxData] = useState({
     type: 'Purchase',
     category: addingToCurrent ? nextCombo.category : CATEGORIES[0],
@@ -2085,23 +2086,29 @@ function DealModal({ isOpen, onClose, mode, initialData, currentDeal, counterPar
           <button className="btn-icon" onClick={onClose}><X size={20} /></button>
         </div>
         <div className="modal-body" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
-          <form className="form-grid" onSubmit={(e) => {
+          <form className="form-grid" onSubmit={async (e) => {
             e.preventDefault();
+            if (isSubmitting) return;
+            setIsSubmitting(true);
             
             // Map text inputs back to IDs if they match existing entities
             const matchedCp = counterParties.find(cp => cp.name === formData.counterPartyId || cp._id === formData.counterPartyId);
             const matchedCpAgent = agents.find(a => a.name === formData.counterPartyAgentId || a._id === formData.counterPartyAgentId);
             const matchedMyAgent = agents.find(a => a.name === formData.myAgentId || a._id === formData.myAgentId);
 
-            onSubmit({ 
-              ...initialData, 
-              ...formData,
-              counterPartyId: matchedCp ? matchedCp._id : formData.counterPartyId,
-              counterPartyAgentId: matchedCpAgent ? matchedCpAgent._id : formData.counterPartyAgentId,
-              myAgentId: matchedMyAgent ? matchedMyAgent._id : formData.myAgentId,
-              addToExistingDeal: addingToCurrent,
-              initialTransaction: (mode === 'add' && includeInitialTx) ? txData : (addingToCurrent ? txData : null)
-            });
+            try {
+              await onSubmit({ 
+                ...initialData, 
+                ...formData,
+                counterPartyId: matchedCp ? matchedCp._id : formData.counterPartyId,
+                counterPartyAgentId: matchedCpAgent ? matchedCpAgent._id : formData.counterPartyAgentId,
+                myAgentId: matchedMyAgent ? matchedMyAgent._id : formData.myAgentId,
+                addToExistingDeal: addingToCurrent,
+                initialTransaction: (mode === 'add' && includeInitialTx) ? txData : (addingToCurrent ? txData : null)
+              });
+            } finally {
+              setIsSubmitting(false);
+            }
           }}>
             <div className="form-group full-width">
               <label className="form-label">Deal Status</label>
@@ -2179,7 +2186,7 @@ function DealModal({ isOpen, onClose, mode, initialData, currentDeal, counterPar
                     borderRadius: 'var(--radius-md)', 
                     border: '1px solid #cbd5e1', 
                     display: 'grid', 
-                    gridTemplateColumns: '1fr 1fr', 
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
                     gap: '16px',
                     boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
                   }}>
@@ -2276,8 +2283,17 @@ function DealModal({ isOpen, onClose, mode, initialData, currentDeal, counterPar
             )}
 
             <div className="form-group full-width" style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button>
-              <button type="submit" className="btn btn-primary">{mode === 'edit' ? 'Save Changes' : 'Create Deal'}</button>
+              <button type="button" className="btn btn-outline" onClick={onClose} disabled={isSubmitting}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <RefreshCw size={16} className="animate-spin" />
+                    {mode === 'edit' ? 'Saving...' : 'Creating...'}
+                  </span>
+                ) : (
+                  mode === 'edit' ? 'Save Changes' : 'Create Deal'
+                )}
+              </button>
             </div>
           </form>
         </div>

@@ -79,13 +79,13 @@ export const getRateSummaryForTransactions = (transactions) => {
   
   if (transactions.length === 1) {
     return {
-      primary: `₹${avgRate.toFixed(1)} / KG`,
+      primary: `₹${Number(avgRate.toFixed(4))} / KG`,
       detail: ''
     };
   }
 
   return {
-    primary: `₹${avgRate.toFixed(2)} / KG (Avg)`,
+    primary: `₹${Number(avgRate.toFixed(4))} / KG (Avg)`,
     detail: `${transactions.length} rates`
   };
 };

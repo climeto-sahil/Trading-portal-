@@ -91,7 +91,7 @@ export default function AdminUserManagement({ onBackToDashboard, onShowToast }) 
 
   return (
     <div style={{ padding: '0', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      
+
       {/* Top Banner */}
       <div style={{
         background: '#fff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0',
