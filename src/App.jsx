@@ -1363,7 +1363,7 @@ export default function App() {
           onClose={() => setIsDealModalOpen(false)}
           mode={dealModalMode}
           initialData={dealModalMode === 'edit' ? currentDeal : null}
-          currentDeal={dealModalMode === 'add' ? currentDeal : null}
+          currentDeal={null}
           counterParties={counterParties}
           agents={agents}
           onSubmit={saveDeal}
