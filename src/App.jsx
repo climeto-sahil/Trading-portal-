@@ -11,6 +11,7 @@ import { useAuth } from './context/AuthContext.jsx';
 import LoginPage from './components/LoginPage.jsx';
 import SignupPage from './components/SignupPage.jsx';
 import AdminUserManagement from './components/AdminUserManagement.jsx';
+import AllDealsDashboard from './components/AllDealsDashboard.jsx';
 import { calculateTransactionTotal, aggregateTransactions, getRateSummaryForTransactions } from './utils/calculations.js';
 
 
@@ -41,8 +42,8 @@ export default function App() {
   // Auth view: 'login' | 'signup'
   const [authView, setAuthView] = useState('login');
   
-  // Dashboard view: 'workspace' | 'admin-users'
-  const [activeTab, setActiveTab] = useState('workspace');
+  // Dashboard view: 'workspace' | 'admin-users' | 'all-deals'
+  const [activeTab, setActiveTab] = useState('all-deals');
 
   // Core Data States (Fetched from REST API)
   const [deals, setDeals] = useState([]);
@@ -192,6 +193,30 @@ export default function App() {
 
     return filtered;
   }, [transactions, deals, currentDealId, activeSummaryFilter, statusFilter, typeFilter, catFilter, searchQuery, counterParties, agents]);
+
+  const visibleDeals = useMemo(() => {
+    let filteredDeals = deals;
+    
+    if (activeSummaryFilter === 'ENQUIRIES') filteredDeals = filteredDeals.filter(d => d.status === 'Enquiry');
+    if (activeSummaryFilter === 'CONFIRMED') filteredDeals = filteredDeals.filter(d => d.status === 'Confirmed');
+    
+    if (statusFilter !== 'All') filteredDeals = filteredDeals.filter(d => d.status === statusFilter);
+    
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filteredDeals = filteredDeals.filter(deal => {
+        const cp = counterParties.find(c => c._id === deal.counterPartyId || c.name === deal.counterPartyId?.name);
+        return deal.dealId?.toLowerCase().includes(query) || (cp && cp.name?.toLowerCase().includes(query));
+      });
+    }
+    
+    if (typeFilter !== 'All' || catFilter !== 'All' || activeSummaryFilter === 'PURCHASE' || activeSummaryFilter === 'SALE') {
+      const matchingDealIds = new Set(visibleTransactions.map(t => t.dealId));
+      filteredDeals = filteredDeals.filter(d => matchingDealIds.has(d.dealId));
+    }
+    
+    return filteredDeals;
+  }, [deals, activeSummaryFilter, statusFilter, typeFilter, catFilter, searchQuery, counterParties, visibleTransactions]);
 
   const purchaseTxs = visibleTransactions.filter(t => t.type === 'Purchase');
   const saleTxs = visibleTransactions.filter(t => t.type === 'Sale');
@@ -461,8 +486,8 @@ export default function App() {
   };
 
   // Real REST API: Delete Deal
-  const deleteDeal = () => {
-    if (!currentDeal) return;
+  const deleteDeal = (dealToDelete = currentDeal) => {
+    if (!dealToDelete) return;
     setConfirmConfig({
       isOpen: true,
       title: 'Delete Deal',
@@ -470,7 +495,7 @@ export default function App() {
       isDestructive: true,
       onConfirm: async () => {
         try {
-          const { response, data } = await authFetch(`/api/deals/${currentDeal._id}`, {
+          const { response, data } = await authFetch(`/api/deals/${dealToDelete._id}`, {
             method: 'DELETE',
           });
 
@@ -571,39 +596,7 @@ export default function App() {
         {/* Center: Deal Switcher + Nav Tabs */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, justifyContent: 'center' }}>
 
-          {/* Deal Switcher */}
-          {activeTab === 'workspace' && deals.length > 0 && (
-            <button
-              onClick={() => setIsDealPanelOpen(true)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '8px',
-                background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.13)',
-                borderRadius: '10px', padding: '6px 14px', cursor: 'pointer',
-                fontSize: '12px', fontWeight: 700, color: '#cbd5e1',
-                transition: 'all 0.2s', backdropFilter: 'blur(4px)',
-                maxWidth: '260px',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.13)'; }}
-              title="Switch between deals"
-            >
-              <Briefcase size={13} color="#60a5fa" />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '120px' }}>
-                {currentDeal?.dealId || 'Select Deal'}
-              </span>
-              {currentDeal && (
-                <span style={{
-                  fontSize: '9px', fontWeight: 800, padding: '2px 8px', borderRadius: '20px',
-                  background: currentDeal.status === 'Confirmed' ? 'rgba(22,163,74,0.2)' : currentDeal.status === 'Enquiry' ? 'rgba(202,138,4,0.2)' : currentDeal.status === 'Completed' ? 'rgba(37,99,235,0.2)' : 'rgba(239,68,68,0.2)',
-                  color: currentDeal.status === 'Confirmed' ? '#4ade80' : currentDeal.status === 'Enquiry' ? '#facc15' : currentDeal.status === 'Completed' ? '#60a5fa' : '#f87171',
-                  letterSpacing: '0.04em', textTransform: 'uppercase',
-                }}>
-                  {currentDeal.status}
-                </span>
-              )}
-              <ChevronDown size={12} color="#94a3b8" />
-            </button>
-          )}
+          {/* Deal Switcher Removed - User now uses the Dashboard */}
 
           {/* Admin Nav Tabs */}
           {role === 'ADMIN' && (
@@ -612,7 +605,7 @@ export default function App() {
               background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)',
               borderRadius: '10px', padding: '4px',
             }}>
-              {[['workspace', 'Workspace'], ['admin-users', 'Users']].map(([tab, label]) => (
+              {[['all-deals', 'Dashboard'], ['admin-users', 'Users']].map(([tab, label]) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -712,24 +705,32 @@ export default function App() {
       {/* Render Admin User Management if tab active */}
       {role === 'ADMIN' && activeTab === 'admin-users' ? (
         <AdminUserManagement 
-          onBackToDashboard={() => setActiveTab('workspace')} 
+          onBackToDashboard={() => setActiveTab('all-deals')} 
           onShowToast={showToast} 
         />
       ) : (
         <>
-          {/* Top Bar: Search, Filters, New Deal */}
-          <div className="search-container">
-            <div className="search-input-wrapper">
+
+              {/* Top Bar: Search, Filters, New Deal */}
+              {/* Top Bar: Search, Filters, New Deal */}
+              <div className="search-container" style={{ flexDirection: 'row', alignItems: 'center', gap: '16px', padding: '12px 16px', overflowX: 'auto', flexWrap: 'nowrap' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
+                  
+                  {/* Left Side: Search Bar */}
+                  <div className="search-input-wrapper" style={{ width: '220px' }}>
               <Search size={18} className="search-icon" />
               <input 
                 type="text" 
                 className="search-input" 
-                placeholder="Search deals, counterparties, agents, categories..." 
+                placeholder="Search deals, counterparties..." 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <div className="filters-bar">
+            
+            {/* Right Side: Filters and Button */}
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <div className="filters-bar">
               <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: 'auto' }}>
                 <option value="All">All Statuses</option>
                 <option value="Enquiry">Enquiry</option>
@@ -737,68 +738,67 @@ export default function App() {
                 <option value="Completed">Completed</option>
                 <option value="Cancelled">Cancelled</option>
               </select>
-              <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ width: 'auto' }}>
-                <option value="All">All Types</option>
-                <option value="Purchase">Purchase</option>
-                <option value="Sale">Sale</option>
-              </select>
-              <select className="form-select" value={catFilter} onChange={e => setCatFilter(e.target.value)} style={{ width: 'auto' }}>
-                <option value="All">All Categories</option>
-                {CATEGORY_COMBOS.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
-              </select>
+
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button
-                className="btn btn-outline"
-                onClick={() => setIsDealPanelOpen(true)}
-                style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <Briefcase size={14} /> All Deals ({deals.length})
-              </button>
+
               {(role === 'ADMIN' || role === 'MY_AGENT') && (
                 <button className="btn btn-primary" onClick={() => { setDealModalMode('add'); setIsDealModalOpen(true); }}>
                   <Plus size={16} /> NEW DEAL
                 </button>
               )}
             </div>
-          </div>
+            </div>
+            </div>
 
-          {/* Summary Grid (Requirement 9: Adapted per role) */}
-          <div className="summary-grid">
-            <div className={`card summary-card ${activeSummaryFilter === 'ALL' ? 'active' : ''}`} onClick={() => { setActiveSummaryFilter('ALL'); setCurrentDealId(deals[0]?.dealId || null); }}>
+            {/* Summary Row */}
+            <div style={{ display: 'flex', gap: '8px', flex: 1, minWidth: 'max-content' }}>
+            <div className={`card summary-card ${activeSummaryFilter === 'ALL' ? 'active' : ''}`} style={{ padding: '8px 12px', flex: 1, minWidth: '130px' }} onClick={() => { setActiveSummaryFilter('ALL'); setCurrentDealId(deals[0]?.dealId || null); }}>
               <span className="summary-card-title flex items-center gap-2"><Briefcase size={16} /> {role === 'ADMIN' ? 'Total Deals' : 'Assigned Deals'}</span>
-              <span className="summary-card-value">{deals.length}</span>
+              <span className="summary-card-value" style={{ fontSize: '1rem' }}>{deals.length}</span>
             </div>
-            <div className={`card summary-card ${activeSummaryFilter === 'ENQUIRIES' ? 'active' : ''}`} onClick={() => setActiveSummaryFilter('ENQUIRIES')}>
+            <div className={`card summary-card ${activeSummaryFilter === 'ENQUIRIES' ? 'active' : ''}`} style={{ padding: '8px 12px', flex: 1, minWidth: '130px' }} onClick={() => setActiveSummaryFilter('ENQUIRIES')}>
               <span className="summary-card-title flex items-center gap-2"><FileText size={16} /> Enquiries</span>
-              <span className="summary-card-value">{totalEnquiries}</span>
+              <span className="summary-card-value" style={{ fontSize: '1rem' }}>{totalEnquiries}</span>
             </div>
-            <div className={`card summary-card ${activeSummaryFilter === 'CONFIRMED' ? 'active' : ''}`} onClick={() => setActiveSummaryFilter('CONFIRMED')}>
+            <div className={`card summary-card ${activeSummaryFilter === 'CONFIRMED' ? 'active' : ''}`} style={{ padding: '8px 12px', flex: 1, minWidth: '130px' }} onClick={() => setActiveSummaryFilter('CONFIRMED')}>
               <span className="summary-card-title flex items-center gap-2"><CheckCircle size={16} /> Confirmed</span>
-              <span className="summary-card-value">{totalConfirmed}</span>
+              <span className="summary-card-value" style={{ fontSize: '1rem' }}>{totalConfirmed}</span>
             </div>
-            <div className={`card summary-card ${activeSummaryFilter === 'PURCHASE' ? 'active' : ''}`} style={{ borderBottom: '4px solid var(--purchase-color)' }} onClick={() => setActiveSummaryFilter('PURCHASE')}>
+            <div className={`card summary-card ${activeSummaryFilter === 'PURCHASE' ? 'active' : ''}`} style={{ padding: '8px 12px', flex: 1, minWidth: '130px', borderBottom: '3px solid var(--purchase-color)' }} onClick={() => setActiveSummaryFilter('PURCHASE')}>
               <span className="summary-card-title flex items-center gap-2"><IndianRupee size={16} /> Purchase</span>
-              <span className="summary-card-value">{formatCurrency(globalTotalPurchase)}</span>
+              <span className="summary-card-value" style={{ fontSize: '1rem' }}>{formatCurrency(globalTotalPurchase)}</span>
             </div>
-            <div className={`card summary-card ${activeSummaryFilter === 'SALE' ? 'active' : ''}`} style={{ borderBottom: '4px solid var(--sale-color)' }} onClick={() => setActiveSummaryFilter('SALE')}>
+            <div className={`card summary-card ${activeSummaryFilter === 'SALE' ? 'active' : ''}`} style={{ padding: '8px 12px', flex: 1, minWidth: '130px', borderBottom: '3px solid var(--sale-color)' }} onClick={() => setActiveSummaryFilter('SALE')}>
               <span className="summary-card-title flex items-center gap-2"><IndianRupee size={16} /> Sale</span>
-              <span className="summary-card-value">{formatCurrency(globalTotalSale)}</span>
+              <span className="summary-card-value" style={{ fontSize: '1rem' }}>{formatCurrency(globalTotalSale)}</span>
             </div>
-            <div className="card summary-card" style={{ borderBottom: '4px solid var(--success)' }}>
+            <div className="card summary-card" style={{ padding: '8px 12px', flex: 1, minWidth: '130px', borderBottom: '3px solid var(--success)' }}>
               <span className="summary-card-title flex items-center gap-2"><IndianRupee size={16} /> Net</span>
-              <span className="summary-card-value" style={{ color: netAmount >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+              <span className="summary-card-value" style={{ color: netAmount >= 0 ? 'var(--success)' : 'var(--danger)', fontSize: '1rem' }}>
                 {formatCurrency(netAmount)}
               </span>
             </div>
           </div>
-
-          {/* Deal Header */}
-          {currentDeal && activeSummaryFilter === 'ALL' && (
-            <>
-              <div className="card deal-header">
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        </div>
+              <AllDealsDashboard 
+                deals={visibleDeals} 
+                transactions={transactions}
+                counterParties={counterParties}
+                role={role}
+                currentDealId={currentDealId}
+                onDeleteDeal={deleteDeal}
+                onToggleDeal={(id) => {
+                  setCurrentDealId(prev => prev === id ? null : id);
+                }}
+                renderDealDetails={() => (
+                  <>
+                    {/* Deal Header */}
+                    {currentDeal && (
+                      <>
+                  <div className="card deal-header">
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <h2>{currentDeal.dealId}</h2>
                     <span className={`badge ${currentDeal.status === 'Confirmed' ? 'badge-success' : currentDeal.status === 'Enquiry' ? 'badge-warning' : 'badge-primary'}`}>
                       {currentDeal.status}
@@ -1170,6 +1170,9 @@ export default function App() {
             </div>
           </div>
           )}
+                  </>
+                )}
+              />
         </>
       )}
 

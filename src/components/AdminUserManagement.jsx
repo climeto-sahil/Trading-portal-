@@ -137,7 +137,7 @@ export default function AdminUserManagement({ onBackToDashboard, onShowToast }) 
               boxShadow: '0 2px 8px rgba(37,99,235,0.3)', transition: 'all 0.2s'
             }}
           >
-            <ArrowLeft size={16} /> Back to Trading Workspace
+            <ArrowLeft size={16} /> Back to Dashboard
           </button>
         </div>
       </div>
