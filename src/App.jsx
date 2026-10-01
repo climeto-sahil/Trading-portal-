@@ -36,7 +36,278 @@ const formatRate = (rate) => {
 };
 
 
+// --- DEAL ACTIONS DROPDOWN COMPONENT ---
+function DealActionsDropdown({ deal, role, uniqueKey, openDropdownId, setOpenDropdownId, updateDealStatus, deleteDeal, onViewDeal, openProfile, onAddTransaction }) {
+  if (!deal) return null;
+  const isOpen = openDropdownId === uniqueKey;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      {deal.status === 'Enquiry' && (role === 'ADMIN' || role === 'MY_AGENT') && (
+        <button className="btn btn-outline" style={{ color: 'var(--success)', borderColor: 'var(--success)', padding: '2px 8px', fontSize: '0.75rem', height: '26px', minHeight: '26px' }} onClick={(e) => { e.stopPropagation(); updateDealStatus('Confirmed', deal); }}>
+          Confirm Deal
+        </button>
+      )}
+      <div className="dropdown-container" style={{ position: 'relative' }}>
+        <button className="btn btn-primary" style={{ padding: '2px 8px', fontSize: '0.75rem', height: '26px', minHeight: '26px', background: '#4f46e5' }} onClick={(e) => { e.stopPropagation(); setOpenDropdownId(isOpen ? null : uniqueKey); }}>
+          Options
+        </button>
+        {isOpen && (
+          <div className="dropdown-menu" style={{ position: 'absolute', right: 0, top: '100%', zIndex: 50, minWidth: '180px' }} onClick={e => e.stopPropagation()}>
+            <button className="dropdown-item" onClick={() => { setOpenDropdownId(null); onViewDeal(deal.dealId); }}>View Deal Details</button>
+            <button className="dropdown-item" onClick={() => { setOpenDropdownId(null); openProfile('Agent', deal.counterPartyAgentId); }}>View Counter Agent</button>
+            <button className="dropdown-item" onClick={() => { setOpenDropdownId(null); openProfile('Agent', deal.myAgentId); }}>View My Agent</button>
+            {role === 'ADMIN' && (
+              <>
+                <div className="divider" style={{ margin: '4px 0' }}></div>
+                <button className="dropdown-item" onClick={() => { setOpenDropdownId(null); updateDealStatus('Confirmed', deal); }}>Mark as Confirmed</button>
+                <button className="dropdown-item" onClick={() => { setOpenDropdownId(null); updateDealStatus('Completed', deal); }}>Mark as Completed</button>
+                <button className="dropdown-item text-danger" onClick={() => { setOpenDropdownId(null); updateDealStatus('Cancelled', deal); }}>Cancel Deal</button>
+                <button className="dropdown-item text-danger" onClick={() => { setOpenDropdownId(null); deleteDeal(deal); }}>Delete Deal</button>
+              </>
+            )}
+            {(role === 'ADMIN' || role === 'MY_AGENT') && onAddTransaction && (
+              <>
+                <div className="divider" style={{ margin: '4px 0' }}></div>
+                <button className="dropdown-item" onClick={() => { setOpenDropdownId(null); onAddTransaction(deal.dealId, 'Purchase'); }}>Add Purchase</button>
+                <button className="dropdown-item" onClick={() => { setOpenDropdownId(null); onAddTransaction(deal.dealId, 'Sale'); }}>Add Sale</button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- CATEGORY DASHBOARD COMPONENT ---
+function CategoryDashboard({ transactions, counterParties, agents, role, deals, updateDealStatus, deleteDeal, onViewDeal, onViewTransaction, onDeleteTransaction, onEditTransaction, onProfileClick, onAddTransaction }) {
+  const [expandedDeals, setExpandedDeals] = useState({});
+  const [openDropdownId, setOpenDropdownId] = useState(null);
+
+  useEffect(() => {
+    const handleClickOutside = () => setOpenDropdownId(null);
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  const toggleDeal = (dealId) => {
+    setExpandedDeals(prev => ({ ...prev, [dealId]: !prev[dealId] }));
+  };
+
+  const normalizeCat = (c) => {
+    if (!c) return 'Cat 1';
+    const up = c.toUpperCase();
+    if (up === 'CAT 1') return 'Cat 1';
+    if (up === 'CAT 2') return 'Cat 2';
+    if (up === 'CAT 3') return 'Cat 3';
+    if (up === 'CAT 4') return 'Cat 4';
+    return c;
+  };
+
+  // Generate unique categories based on all existing transactions, fallback to standard if none
+  const CATEGORIES_LIST = useMemo(() => {
+    const combos = new Map();
+    // Add default categories
+    ['Cat 1', 'Cat 2', 'Cat 3'].forEach(c => {
+      ['Recycling', 'EOL'].forEach(m => {
+        combos.set(`${c}-${m}`, { label: `${c} — ${m}`, category: c, materialType: m });
+      });
+    });
+    // Add any categories present in transactions
+    transactions.forEach(t => {
+      const c = normalizeCat(t.category);
+      const m = t.materialType || 'Recycling';
+      combos.set(`${c}-${m}`, { label: `${c} — ${m}`, category: c, materialType: m });
+    });
+    return Array.from(combos.values());
+  }, [transactions]);
+
+  const groupTxsByDeal = (txs) => {
+    const grouped = {};
+    txs.forEach(tx => {
+      if(!grouped[tx.dealId]) grouped[tx.dealId] = [];
+      grouped[tx.dealId].push(tx);
+    });
+    return grouped;
+  };
+
+  return (
+    <div style={{ padding: '24px', flex: 1, overflowY: 'auto' }}>
+      <h2 style={{ fontSize: '1.4rem', fontWeight: 800, marginBottom: '24px', color: '#0f172a' }}>Global Category Dashboard</h2>
+      
+      {(() => {
+        const emptyDeals = deals?.filter(d => !transactions.some(t => t.dealId === d.dealId)) || [];
+        if (emptyDeals.length === 0) return null;
+        return (
+          <div style={{ background: '#fefce8', border: '1px solid #fef08a', borderRadius: '12px', padding: '16px', marginBottom: '24px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', color: '#854d0e', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              ⚠️ Empty / Draft Deals ({emptyDeals.length})
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: '#a16207', margin: '0 0 16px 0' }}>
+              These deals currently have no transactions. Add a Purchase or Sale to move them into a category.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
+              {emptyDeals.map(deal => (
+                 <div key={deal.dealId} onClick={() => onViewDeal(deal.dealId)} style={{ background: '#fff', border: '1px solid #fde047', padding: '12px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1)'} onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}>
+                   <div>
+                     <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#713f12', display: 'block' }}>{deal.dealId}</span>
+                     <span style={{ fontSize: '0.75rem', color: '#a16207' }}>Status: {deal.status}</span>
+                   </div>
+                   <div onClick={e => e.stopPropagation()}>
+                     <DealActionsDropdown deal={deal} role={role} uniqueKey={`empty-${deal.dealId}`} openDropdownId={openDropdownId} setOpenDropdownId={setOpenDropdownId} updateDealStatus={updateDealStatus} deleteDeal={deleteDeal} onViewDeal={onViewDeal} openProfile={onProfileClick} onAddTransaction={onAddTransaction} />
+                   </div>
+                 </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {CATEGORIES_LIST.map(combo => {
+        const pTxs = transactions.filter(t => t.type === 'Purchase' && normalizeCat(t.category) === combo.category && (t.materialType || 'Recycling') === combo.materialType);
+        const sTxs = transactions.filter(t => t.type === 'Sale' && normalizeCat(t.category) === combo.category && (t.materialType || 'Recycling') === combo.materialType);
+        
+        if (pTxs.length === 0 && sTxs.length === 0) return null;
+        
+        const pTxsGrouped = groupTxsByDeal(pTxs);
+        const sTxsGrouped = groupTxsByDeal(sTxs);
+
+        return (
+          <div key={combo.label} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: '#1e293b' }}>{combo.label}</h3>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', padding: '20px' }}>
+              {/* Purchase Side */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '2px solid #bae6fd', paddingBottom: '8px' }}>
+                  <h4 style={{ color: '#0369a1', margin: 0, fontWeight: 700, fontSize: '0.95rem' }}>PURCHASE TRANSACTIONS</h4>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {pTxs.length === 0 ? <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>No purchase transactions</p> : Object.entries(pTxsGrouped).map(([dealId, txList]) => {
+                    const uniqueKey = `${combo.label}-Purchase-${dealId}`;
+                    const isExpanded = !!expandedDeals[uniqueKey];
+                    const deal = deals?.find(d => d.dealId === dealId);
+                    return (
+                      <div key={dealId} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff' }}>
+                        <div onClick={() => toggleDeal(uniqueKey)} style={{ cursor: 'pointer', background: '#f1f5f9', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: isExpanded ? '8px 8px 0 0' : '8px' }}>
+                           <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                             Deal: {dealId} <span style={{fontWeight: 'normal', color: '#64748b'}}>({txList.length})</span>
+                             {(() => {
+                               const qty = txList.reduce((acc, t) => acc + (Number(t.quantity)||0), 0);
+                               const unit = txList[0]?.unit || 'MT';
+                               const rate = txList[0]?.ratePerKg || 0;
+                               return (
+                                 <span style={{ display: 'flex', gap: '8px', marginLeft: '12px' }}>
+                                   <span style={{ color: '#0369a1', background: '#e0f2fe', padding: '2px 8px', borderRadius: '4px', display: 'flex', gap: '4px' }}>
+                                     <span style={{opacity: 0.7, fontWeight: 500}}>Qty:</span> {qty.toLocaleString()} {unit}
+                                   </span>
+                                   <span style={{ color: '#0369a1', background: '#e0f2fe', padding: '2px 8px', borderRadius: '4px', display: 'flex', gap: '4px' }}>
+                                     <span style={{opacity: 0.7, fontWeight: 500}}>Rate:</span> ₹{Number(rate).toLocaleString()} / KG
+                                   </span>
+                                 </span>
+                               );
+                             })()}
+                           </span>
+                           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                             <div onClick={e => e.stopPropagation()}>
+                               <DealActionsDropdown deal={deal} role={role} uniqueKey={uniqueKey} openDropdownId={openDropdownId} setOpenDropdownId={setOpenDropdownId} updateDealStatus={updateDealStatus} deleteDeal={deleteDeal} onViewDeal={onViewDeal} openProfile={onProfileClick} onAddTransaction={onAddTransaction} />
+                             </div>
+                             {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                           </div>
+                        </div>
+                        {isExpanded && (
+                           <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                             {txList.map(tx => (
+                                <TransactionCard key={tx._id || tx.id} tx={tx} 
+                                  counterParty={counterParties.find(c => c._id === tx.counterPartyId || c.name === tx.counterPartyId?.name)}
+                                  counterAgent={agents.find(a => a._id === tx.counterPartyAgentId || a.name === tx.counterPartyAgentId?.name)}
+                                  myAgent={agents.find(a => a._id === tx.myAgentId || a.name === tx.myAgentId?.name)}
+                                  currentUserRole={role}
+                                  onView={() => onViewTransaction(tx)}
+                                  onEdit={() => onEditTransaction(tx)}
+                                  onDelete={() => onDeleteTransaction(tx)}
+                                  onProfileClick={(type, id) => onProfileClick(type, id, tx)}
+                                />
+                             ))}
+                           </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Sale Side */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '2px solid #ddd6fe', paddingBottom: '8px' }}>
+                  <h4 style={{ color: '#6d28d9', margin: 0, fontWeight: 700, fontSize: '0.95rem' }}>SALE TRANSACTIONS</h4>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {sTxs.length === 0 ? <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>No sale transactions</p> : Object.entries(sTxsGrouped).map(([dealId, txList]) => {
+                    const uniqueKey = `${combo.label}-Sale-${dealId}`;
+                    const isExpanded = !!expandedDeals[uniqueKey];
+                    const deal = deals?.find(d => d.dealId === dealId);
+                    return (
+                      <div key={dealId} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff' }}>
+                        <div onClick={() => toggleDeal(uniqueKey)} style={{ cursor: 'pointer', background: '#f1f5f9', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: isExpanded ? '8px 8px 0 0' : '8px' }}>
+                           <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                             Deal: {dealId} <span style={{fontWeight: 'normal', color: '#64748b'}}>({txList.length})</span>
+                             {(() => {
+                               const qty = txList.reduce((acc, t) => acc + (Number(t.quantity)||0), 0);
+                               const unit = txList[0]?.unit || 'MT';
+                               const rate = txList[0]?.ratePerKg || 0;
+                               return (
+                                 <span style={{ display: 'flex', gap: '8px', marginLeft: '12px' }}>
+                                   <span style={{ color: '#6d28d9', background: '#f3e8ff', padding: '2px 8px', borderRadius: '4px', display: 'flex', gap: '4px' }}>
+                                     <span style={{opacity: 0.7, fontWeight: 500}}>Qty:</span> {qty.toLocaleString()} {unit}
+                                   </span>
+                                   <span style={{ color: '#6d28d9', background: '#f3e8ff', padding: '2px 8px', borderRadius: '4px', display: 'flex', gap: '4px' }}>
+                                     <span style={{opacity: 0.7, fontWeight: 500}}>Rate:</span> ₹{Number(rate).toLocaleString()} / KG
+                                   </span>
+                                 </span>
+                               );
+                             })()}
+                           </span>
+                           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                             <div onClick={e => e.stopPropagation()}>
+                               <DealActionsDropdown deal={deal} role={role} uniqueKey={uniqueKey} openDropdownId={openDropdownId} setOpenDropdownId={setOpenDropdownId} updateDealStatus={updateDealStatus} deleteDeal={deleteDeal} onViewDeal={onViewDeal} openProfile={onProfileClick} onAddTransaction={onAddTransaction} />
+                             </div>
+                             {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                           </div>
+                        </div>
+                        {isExpanded && (
+                           <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                             {txList.map(tx => (
+                                <TransactionCard key={tx._id || tx.id} tx={tx} 
+                                  counterParty={counterParties.find(c => c._id === tx.counterPartyId || c.name === tx.counterPartyId?.name)}
+                                  counterAgent={agents.find(a => a._id === tx.counterPartyAgentId || a.name === tx.counterPartyAgentId?.name)}
+                                  myAgent={agents.find(a => a._id === tx.myAgentId || a.name === tx.myAgentId?.name)}
+                                  currentUserRole={role}
+                                  onView={() => onViewTransaction(tx)}
+                                  onEdit={() => onEditTransaction(tx)}
+                                  onDelete={() => onDeleteTransaction(tx)}
+                                  onProfileClick={(type, id) => onProfileClick(type, id, tx)}
+                                />
+                             ))}
+                           </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function App() {
+
   const { user, role, isAuthenticated, loading: authLoading, logout, authFetch } = useAuth();
   
   // Auth view: 'login' | 'signup'
@@ -62,6 +333,7 @@ export default function App() {
   // Filtering & Search
   const [searchQuery, setSearchQuery] = useState('');
   const [activeSummaryFilter, setActiveSummaryFilter] = useState('ALL'); // ALL, ENQUIRIES, CONFIRMED, PURCHASE, SALE
+  const [dashboardMode, setDashboardMode] = useState('category'); // NEW STATE: 'deal' or 'category'
   const [statusFilter, setStatusFilter] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All');
   const [catFilter, setCatFilter] = useState('All');
@@ -72,6 +344,9 @@ export default function App() {
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [txModalMode, setTxModalMode] = useState('add');
   const [activeTxData, setActiveTxData] = useState(null);
+  
+  const [dealDrawerOpen, setDealDrawerOpen] = useState(false);
+  const [dealDrawerDeal, setDealDrawerDeal] = useState(null);
   
   const [isDealModalOpen, setIsDealModalOpen] = useState(false);
   const [dealModalMode, setDealModalMode] = useState('edit'); // 'add', 'edit'
@@ -86,6 +361,8 @@ export default function App() {
   const [moreDropdownOpen, setMoreDropdownOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
   const [confirmConfig, setConfirmConfig] = useState({ isOpen: false, title: '', message: '', onConfirm: null, isDestructive: false });
+  const [acceptedLinkedDeals, setAcceptedLinkedDeals] = useState({});
+  const [isMatchModalOpen, setIsMatchModalOpen] = useState(false);
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -137,6 +414,28 @@ export default function App() {
   // Derived Data
   const currentDeal = deals.find(d => d.dealId === currentDealId || d._id === currentDealId);
   
+  const currentLinkedIds = acceptedLinkedDeals[currentDealId] || [];
+  
+  const currentCatNames = useMemo(() => {
+    if (!currentDeal) return new Set();
+    return new Set([
+      ...(currentDeal.categories || []).map(c => c.name),
+      ...transactions.filter(t => t.dealId === currentDealId).map(t => t.category)
+    ]);
+  }, [currentDeal, transactions]);
+
+  const matchingDeals = useMemo(() => {
+    if (!currentDeal || currentCatNames.size === 0) return [];
+    return deals.filter(d => {
+      if (d.dealId === currentDealId) return false;
+      if (currentLinkedIds.includes(d.dealId)) return false;
+      const otherCatNames = new Set([
+        ...(d.categories || []).map(c => c.name),
+        ...transactions.filter(t => t.dealId === d.dealId).map(t => t.category)
+      ]);
+      return [...currentCatNames].some(cat => otherCatNames.has(cat));
+    });
+  }, [deals, currentDeal, currentCatNames, currentLinkedIds, transactions]);
   // Compute global summary for top cards
   const totalEnquiries = deals.filter(d => d.status === 'Enquiry').length;
   const totalConfirmed = deals.filter(d => d.status === 'Confirmed').length;
@@ -457,8 +756,8 @@ export default function App() {
   };
 
   // Real REST API: Update Deal Status
-  const updateDealStatus = (status) => {
-    if (!currentDeal) return;
+  const updateDealStatus = (status, deal = currentDeal) => {
+    if (!deal) return;
     setConfirmConfig({
       isOpen: true,
       title: 'Confirm Status Change',
@@ -466,7 +765,7 @@ export default function App() {
       isDestructive: false,
       onConfirm: async () => {
         try {
-          const { response, data } = await authFetch(`/api/deals/${currentDeal._id}/status`, {
+          const { response, data } = await authFetch(`/api/deals/${deal._id}/status`, {
             method: 'PUT',
             body: JSON.stringify({ status }),
           });
@@ -741,7 +1040,6 @@ export default function App() {
 
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-
               {(role === 'ADMIN' || role === 'MY_AGENT') && (
                 <button className="btn btn-primary" onClick={() => { setDealModalMode('add'); setIsDealModalOpen(true); }}>
                   <Plus size={16} /> NEW DEAL
@@ -781,8 +1079,35 @@ export default function App() {
             </div>
           </div>
         </div>
+              {dashboardMode === 'category' ? (
+                <CategoryDashboard 
+                   transactions={visibleTransactions}
+                   counterParties={counterParties}
+                   agents={agents}
+                   role={role}
+                   deals={visibleDeals}
+                   updateDealStatus={updateDealStatus}
+                   deleteDeal={deleteDeal}
+                   onViewDeal={(id) => {
+                      const dealObj = visibleDeals.find(d => d.dealId === id);
+                      if (dealObj) {
+                        setDealDrawerDeal(dealObj);
+                        setDealDrawerOpen(true);
+                      }
+                   }}
+                   onViewTransaction={(tx) => { setSelectedTx(tx); setIsTxDrawerOpen(true); }}
+                   onDeleteTransaction={(tx) => deleteTransaction(tx)}
+                   onEditTransaction={(tx) => openTxModal('edit', tx.type, tx.category, tx.materialType, tx)}
+                   onProfileClick={(type, id, tx) => openProfile(type, id, tx)}
+                   onAddTransaction={(dealId, type) => {
+                     setCurrentDealId(dealId);
+                     openTxModal('add', type, 'Cat 1', 'Recycling');
+                   }}
+                />
+              ) : (
               <AllDealsDashboard 
                 deals={visibleDeals} 
+
                 transactions={transactions}
                 counterParties={counterParties}
                 role={role}
@@ -839,16 +1164,22 @@ export default function App() {
                     </button>
                   )}
 
+
                   {(role === 'ADMIN' || role === 'MY_AGENT') && (
-                    <button
-                      className="btn btn-outline"
-                      onClick={() => {
-                        setAddCatForm({ category: 'Cat 2', materialType: 'Recycling', type: 'Purchase' });
-                        setIsAddCategoryOpen(true);
-                      }}
-                    >
-                      <Plus size={16}/> Add Category
-                    </button>
+                    <>
+                      <button className="btn btn-outline" onClick={() => {
+                          setAddCatForm({ category: 'Cat 2', materialType: 'Recycling', type: 'Purchase' });
+                          setIsAddCategoryOpen(true);
+                        }}>
+                        <Plus size={16}/> Add Category
+                      </button>
+                      <button className="btn btn-outline" style={{ color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff' }} onClick={() => openTxModal('add', 'Purchase', CATEGORIES[0])}>
+                        <Plus size={16}/> Add Purchase
+                      </button>
+                      <button className="btn btn-outline" style={{ color: '#6d28d9', borderColor: '#ddd6fe', background: '#faf5ff' }} onClick={() => openTxModal('add', 'Sale', CATEGORIES[0])}>
+                        <Plus size={16}/> Add Sale
+                      </button>
+                    </>
                   )}
                   
                   {role === 'ADMIN' && (
@@ -895,8 +1226,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Deal Rate Summary Component (Requirement 36) */}
-              <DealRateSummary deal={currentDeal} transactions={transactions} />
             </>
           )}
 
@@ -926,253 +1255,240 @@ export default function App() {
             </div>
           )}
 
-          {/* Main Columns: Purchase & Sale */}
-          {deals.length > 0 && (
-          <div className="columns-container">
-            {/* PURCHASE COLUMN */}
-            <div>
-              <div className="column-header bg-purchase" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h2>PURCHASE</h2>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {(role === 'ADMIN' || role === 'MY_AGENT') && currentDeal && (
-                    <button className="btn btn-outline" style={{ background: '#fff', color: '#0284c7', padding: '4px 10px', fontSize: '0.75rem', borderColor: 'transparent' }} onClick={() => {
-                      setAddCatForm({ category: 'Cat 2', materialType: 'Recycling', type: 'Purchase' });
-                      setIsAddCategoryOpen(true);
-                    }}>
-                      <Plus size={14} style={{ display: 'inline', marginRight: '4px' }}/> Add Category
-                    </button>
-                  )}
-                  {(role === 'ADMIN' || role === 'MY_AGENT') && (
-                    <button className="btn btn-outline" style={{ background: '#fff', color: '#0284c7', padding: '4px 10px', fontSize: '0.75rem', borderColor: 'transparent' }} onClick={() => openTxModal('add', 'Purchase', CATEGORIES[0])}>
-                      <Plus size={14} style={{ display: 'inline', marginRight: '4px' }}/> Add Purchase
-                    </button>
-                  )}
-                </div>
-              </div>
+          {deals.length > 0 && currentDealId && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 7.5fr) minmax(280px, 2.5fr)', gap: '20px', alignItems: 'start', marginTop: '16px' }}>
               
-              {CATEGORY_COMBOS.filter(combo => {
-                  const dealCats = (deals.find(d => d.dealId === currentDealId)?.categories || []);
-                  const hasDealCat = dealCats.some(cat => cat.name === combo.category && cat.type === combo.materialType);
-                  // Only show this combo if deal/tx matches BOTH category AND materialType (Recycling ≠ EOL)
-                  const hasDealTx = visibleTransactions.some(t =>
-                    t.dealId === currentDealId &&
-                    t.category === combo.category &&
-                    (t.materialType || 'Recycling') === combo.materialType
-                  );
-                  return hasDealCat || hasDealTx;
+              {/* LEFT COLUMN: Main Columns: Purchase & Sale */}
+              <div className="columns-container" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* Now render each category as a row with 2 columns */}
+                {CATEGORY_COMBOS.filter(combo => {
+                    const dealCats = (deals.find(d => d.dealId === currentDealId)?.categories || []);
+                    const hasDealCat = dealCats.some(cat => cat.name === combo.category && cat.type === combo.materialType);
+                    const hasDealTx = visibleTransactions.some(t =>
+                      t.dealId === currentDealId &&
+                      t.category === combo.category &&
+                      (t.materialType || 'Recycling') === combo.materialType
+                    );
+                    return hasDealCat || hasDealTx;
                 }).map(combo => {
-                const catLabel = combo.label;
-                const catKey = `${currentDealId}-Purchase-${catLabel}`;
-                const isExpanded = !!expandedCats[catKey];
-                const txs = purchaseTxs.filter(t =>
-                  t.dealId === currentDealId &&
-                  t.category === combo.category &&
-                  (t.materialType || 'Recycling') === combo.materialType
-                );
-                const aggCat = aggregateTransactions(txs);
-                const totalQty = aggCat.totalPurchaseQtyMT;
-                const totalAmt = aggCat.totalPurchaseValue;
-                const rateSummary = getRateSummaryForTransactions(txs);
+                    const catLabel = combo.label;
+                    const pTxs = purchaseTxs.filter(t => t.dealId === currentDealId && t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType);
+                    const sTxs = saleTxs.filter(t => t.dealId === currentDealId && t.category === combo.category && (t.materialType || 'Recycling') === combo.materialType);
+                    
+                    const pAgg = aggregateTransactions(pTxs);
+                    const sAgg = aggregateTransactions(sTxs);
+                    
+                    const pRateSummary = getRateSummaryForTransactions(pTxs);
+                    const sRateSummary = getRateSummaryForTransactions(sTxs);
+                    
+                    const catKey = `${currentDealId}-Combo-${catLabel}`;
+                    const isExpanded = expandedCats[catKey] !== false;
 
-                return (
-                  <div key={`purchase-${catLabel}`} className="category-group">
-                    {/* Header with Deal Count */}
-                    <div className={`category-header ${!isExpanded ? 'collapsed' : ''}`} onClick={() => toggleCategory('Purchase', catLabel)}>
-                      <div className="flex items-center gap-2">
-                        {isExpanded ? <ChevronDown size={18}/> : <ChevronRight size={18}/>}
-                        <span>{catLabel}</span>
-                        <span className="badge badge-primary" style={{ marginLeft: '6px', fontSize: '0.72rem' }}>
-                          {txs.length} {txs.length === 1 ? 'Deal' : 'Deals'}
-                        </span>
-                      </div>
-                      {(role === 'ADMIN' || role === 'MY_AGENT') && (
-                        <button className="btn-icon add-btn" title={txs.length > 0 ? "Edit Purchase Transaction" : "Add Purchase Transaction"} onClick={(e) => { 
-                          e.stopPropagation(); 
-                          if (txs.length > 0) openTxModal('edit', 'Purchase', combo.category, combo.materialType, txs[0]);
-                          else openTxModal('add', 'Purchase', combo.category, combo.materialType); 
-                        }}>
-                          {txs.length > 0 ? <Edit size={16} /> : <Plus size={18} />}
-                        </button>
-                      )}
-                    </div>
+                    return (
+                      <div key={catLabel} className="category-combined-row" style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px', boxShadow: 'var(--shadow-sm)' }}>
+                        <div className="flex items-center gap-2 cursor-pointer" onClick={() => toggleCategory('Combo', catLabel)} style={{ marginBottom: '12px', fontWeight: '600', fontSize: '1rem', color: 'var(--text-dark)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                          {isExpanded ? <ChevronDown size={18}/> : <ChevronRight size={18}/>}
+                          <span>{catLabel}</span>
+                          <span className="badge" style={{ background: '#e2e8f0', color: '#475569', fontSize: '0.7rem', marginLeft: '8px', padding: '2px 6px' }}>
+                            {pTxs.length + sTxs.length} Transactions
+                          </span>
+                        </div>
 
-                    {isExpanded && (
-                      <div className="transaction-list">
-                        {/* Compact Summary Directly Under Category Header (Req 33) */}
-                        {txs.length > 0 && (
-                          <div className="category-compact-summary" style={{ marginBottom: '16px' }}>
-                            <div className="cat-summary-col">
-                              <span className="cat-summary-label">Total Quantity:</span>
-                              <span className="cat-summary-val font-semibold">{totalQty.toLocaleString()} MT</span>
+                        {isExpanded && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                            {/* LEFT: PURCHASE BLOCK */}
+                            <div className="category-group purchase-group" style={{ margin: 0, padding: 0, background: 'transparent', border: 'none', boxShadow: 'none' }}>
+                                <div className="transaction-list">
+                                    {pTxs.length > 0 && (
+                                      <div className="category-compact-summary" style={{ marginBottom: '12px', padding: '8px 12px' }}>
+                                        <div className="cat-summary-col">
+                                          <span className="cat-summary-label" style={{ fontSize: '0.7rem' }}>Total Qty:</span>
+                                          <span className="cat-summary-val font-semibold" style={{ fontSize: '0.85rem' }}>{pAgg.totalPurchaseQtyMT.toLocaleString()} MT</span>
+                                        </div>
+                                        <div className="cat-summary-col">
+                                          <span className="cat-summary-label" style={{ fontSize: '0.7rem' }}>Rate:</span>
+                                          <span className="cat-summary-val font-bold text-primary" style={{ fontSize: '0.85rem' }}>{pRateSummary.primary}</span>
+                                        </div>
+                                        <div className="cat-summary-col">
+                                          <span className="cat-summary-label" style={{ fontSize: '0.7rem' }}>Total:</span>
+                                          <span className="cat-summary-val font-bold currency-text" style={{ fontSize: '0.9rem' }}>{formatCurrency(pAgg.totalPurchaseValue)}</span>
+                                        </div>
+                                      </div>
+                                    )}
+                                    {pTxs.length === 0 ? (
+                                      <div className="empty-state" style={{ minHeight: '60px', padding: '12px 8px', gap: '6px' }}>
+                                        <p style={{ fontSize: '0.85rem', margin: 0 }}>No purchase transactions.</p>
+                                        {(role === 'ADMIN' || role === 'MY_AGENT') && (
+                                          <button className="btn btn-outline" style={{ padding: '4px 10px', fontSize: '0.75rem', minHeight: '28px', height: '28px' }} onClick={() => openTxModal('add', 'Purchase', combo.category, combo.materialType)}>+ Add Purchase</button>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      pTxs.map(tx => (
+                                          <TransactionCard 
+                                            key={tx._id || tx.id} tx={tx} 
+                                            counterParty={tx.counterPartyId?.name ? tx.counterPartyId : counterParties.find(cp => cp._id === tx.counterPartyId)}
+                                            counterAgent={tx.counterPartyAgentId?.name ? tx.counterPartyAgentId : agents.find(a => a._id === tx.counterPartyAgentId)}
+                                            myAgent={tx.myAgentId?.name ? tx.myAgentId : agents.find(a => a._id === tx.myAgentId)}
+                                            currentUserRole={role}
+                                            onView={() => { setSelectedTx(tx); setIsTxDrawerOpen(true); }}
+                                            onEdit={() => openTxModal('edit', 'Purchase', tx.category, tx.materialType, tx)}
+                                            onDelete={() => deleteTransaction(tx)}
+                                            onProfileClick={(type, id) => openProfile(type, id, tx)}
+                                          />
+                                      ))
+                                    )}
+                                </div>
                             </div>
-                            <div className="cat-summary-col">
-                              <span className="cat-summary-label">Purchase Rate:</span>
-                              <span className="cat-summary-val font-bold text-primary">{rateSummary.primary}</span>
-                              {rateSummary.detail && (
-                                <span className="text-muted" style={{ fontSize: '0.7rem' }}>{rateSummary.detail}</span>
-                              )}
-                            </div>
-                            <div className="cat-summary-col">
-                              <span className="cat-summary-label">Total Purchase:</span>
-                              <span className="cat-summary-val font-bold currency-text">{formatCurrency(totalAmt)}</span>
+
+                            {/* RIGHT: SALE BLOCK */}
+                            <div className="category-group sale-group" style={{ margin: 0, padding: 0, background: 'transparent', border: 'none', boxShadow: 'none' }}>
+                                <div className="transaction-list">
+                                    {sTxs.length > 0 && (
+                                      <div className="category-compact-summary" style={{ background: '#f5f3ff', borderColor: '#ddd6fe', marginBottom: '12px', padding: '8px 12px' }}>
+                                        <div className="cat-summary-col">
+                                          <span className="cat-summary-label" style={{ fontSize: '0.7rem' }}>Total Qty:</span>
+                                          <span className="cat-summary-val font-semibold" style={{ fontSize: '0.85rem' }}>{sAgg.totalSaleQtyMT.toLocaleString()} MT</span>
+                                        </div>
+                                        <div className="cat-summary-col">
+                                          <span className="cat-summary-label" style={{ fontSize: '0.7rem' }}>Rate:</span>
+                                          <span className="cat-summary-val font-bold text-purple-600" style={{ fontSize: '0.85rem' }}>{sRateSummary.primary}</span>
+                                        </div>
+                                        <div className="cat-summary-col">
+                                          <span className="cat-summary-label" style={{ fontSize: '0.7rem' }}>Total:</span>
+                                          <span className="cat-summary-val font-bold currency-text text-purple-600" style={{ fontSize: '0.9rem' }}>{formatCurrency(sAgg.totalSaleValue)}</span>
+                                        </div>
+                                      </div>
+                                    )}
+                                    {sTxs.length === 0 ? (
+                                      <div className="empty-state" style={{ minHeight: '60px', padding: '12px 8px', gap: '6px' }}>
+                                        <p style={{ fontSize: '0.85rem', margin: 0 }}>No sale transactions.</p>
+                                        {(role === 'ADMIN' || role === 'MY_AGENT') && (
+                                          <button className="btn btn-outline" style={{ padding: '4px 10px', fontSize: '0.75rem', minHeight: '28px', height: '28px' }} onClick={() => openTxModal('add', 'Sale', combo.category, combo.materialType)}>+ Add Sale</button>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      sTxs.map(tx => (
+                                          <TransactionCard 
+                                            key={tx._id || tx.id} tx={tx} 
+                                            counterParty={tx.counterPartyId?.name ? tx.counterPartyId : counterParties.find(cp => cp._id === tx.counterPartyId)}
+                                            counterAgent={tx.counterPartyAgentId?.name ? tx.counterPartyAgentId : agents.find(a => a._id === tx.counterPartyAgentId)}
+                                            myAgent={tx.myAgentId?.name ? tx.myAgentId : agents.find(a => a._id === tx.myAgentId)}
+                                            currentUserRole={role}
+                                            onView={() => { setSelectedTx(tx); setIsTxDrawerOpen(true); }}
+                                            onEdit={() => openTxModal('edit', 'Sale', tx.category, tx.materialType, tx)}
+                                            onDelete={() => deleteTransaction(tx)}
+                                            onProfileClick={(type, id) => openProfile(type, id, tx)}
+                                          />
+                                      ))
+                                    )}
+                                </div>
                             </div>
                           </div>
                         )}
-                        {txs.length === 0 ? (
-                          <div className="empty-state">
-                            <p>No transactions added yet.</p>
-                            {(role === 'ADMIN' || role === 'MY_AGENT') && (
-                              <button className="btn btn-outline" style={{ marginTop: '8px' }} onClick={() => openTxModal('add', 'Purchase', combo.category, combo.materialType)}>+ Add Purchase</button>
-                            )}
-                          </div>
-                        ) : (
-                          <>
-                            {txs.map(tx => (
-                              <TransactionCard 
-                                key={tx._id || tx.id} tx={tx} 
-                                counterParty={tx.counterPartyId?.name ? tx.counterPartyId : counterParties.find(cp => cp._id === tx.counterPartyId)}
-                                counterAgent={tx.counterPartyAgentId?.name ? tx.counterPartyAgentId : agents.find(a => a._id === tx.counterPartyAgentId)}
-                                myAgent={tx.myAgentId?.name ? tx.myAgentId : agents.find(a => a._id === tx.myAgentId)}
-                                currentUserRole={role}
-                                onView={() => { setSelectedTx(tx); setIsTxDrawerOpen(true); }}
-                                onEdit={() => openTxModal('edit', 'Purchase', tx.category, tx.materialType, tx)}
-                                onDelete={() => deleteTransaction(tx)}
-                                onProfileClick={(type, id) => openProfile(type, id, tx)}
-                              />
-                            ))}
-                          </>
-                        )}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* SALE COLUMN */}
-            <div>
-              <div className="column-header bg-sale" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h2>SALE</h2>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {(role === 'ADMIN' || role === 'MY_AGENT') && currentDeal && (
-                    <button className="btn btn-outline" style={{ background: '#fff', color: '#7c3aed', padding: '4px 10px', fontSize: '0.75rem', borderColor: 'transparent' }} onClick={() => {
-                      setAddCatForm({ category: 'Cat 2', materialType: 'Recycling', type: 'Sale' });
-                      setIsAddCategoryOpen(true);
-                    }}>
-                      <Plus size={14} style={{ display: 'inline', marginRight: '4px' }}/> Add Category
-                    </button>
-                  )}
-                  {(role === 'ADMIN' || role === 'MY_AGENT') && (
-                    <button className="btn btn-outline" style={{ background: '#fff', color: '#7c3aed', padding: '4px 10px', fontSize: '0.75rem', borderColor: 'transparent' }} onClick={() => openTxModal('add', 'Sale', CATEGORIES[0])}>
-                      <Plus size={14} style={{ display: 'inline', marginRight: '4px' }}/> Add Sale
-                    </button>
-                  )}
-                </div>
+                    );
+                })}
               </div>
-              
-              {CATEGORY_COMBOS.filter(combo => {
-                  const dealCats = (deals.find(d => d.dealId === currentDealId)?.categories || []);
-                  const hasDealCat = dealCats.some(cat => cat.name === combo.category && cat.type === combo.materialType);
-                  // Only show this combo if deal/tx matches BOTH category AND materialType (Recycling ≠ EOL)
-                  const hasDealTx = visibleTransactions.some(t =>
-                    t.dealId === currentDealId &&
-                    t.category === combo.category &&
-                    (t.materialType || 'Recycling') === combo.materialType
-                  );
-                  return hasDealCat || hasDealTx;
-                }).map(combo => {
-                const catLabel = combo.label;
-                const catKey = `${currentDealId}-Sale-${catLabel}`;
-                const isExpanded = !!expandedCats[catKey];
-                const txs = saleTxs.filter(t =>
-                  t.dealId === currentDealId &&
-                  t.category === combo.category &&
-                  (t.materialType || 'Recycling') === combo.materialType
-                );
-                const aggCat = aggregateTransactions(txs);
-                const totalQty = aggCat.totalSaleQtyMT;
-                const totalAmt = aggCat.totalSaleValue;
-                const rateSummary = getRateSummaryForTransactions(txs);
 
-                return (
-                  <div key={`sale-${catLabel}`} className="category-group">
-                    {/* Header with Deal Count */}
-                    <div className={`category-header ${!isExpanded ? 'collapsed' : ''}`} onClick={() => toggleCategory('Sale', catLabel)}>
-                      <div className="flex items-center gap-2">
-                        {isExpanded ? <ChevronDown size={18}/> : <ChevronRight size={18}/>}
-                        <span>{catLabel}</span>
-                        <span className="badge badge-warning" style={{ marginLeft: '6px', fontSize: '0.72rem' }}>
-                          {txs.length} {txs.length === 1 ? 'Deal' : 'Deals'}
-                        </span>
-                      </div>
-                      {(role === 'ADMIN' || role === 'MY_AGENT') && (
-                        <button className="btn-icon add-btn" title={txs.length > 0 ? "Edit Sale Transaction" : "Add Sale Transaction"} onClick={(e) => { 
-                          e.stopPropagation(); 
-                          if (txs.length > 0) openTxModal('edit', 'Sale', combo.category, combo.materialType, txs[0]);
-                          else openTxModal('add', 'Sale', combo.category, combo.materialType); 
-                        }}>
-                          {txs.length > 0 ? <Edit size={16} /> : <Plus size={18} />}
-                        </button>
-                      )}
+              {/* RIGHT COLUMN: Deal Matching & Portfolio */}
+              <div className="linked-deals-sidebar" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                
+                {/* Suggested Matches Box */}
+                {matchingDeals.length > 0 && (
+                  <div style={{ background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', boxShadow: '0 4px 12px rgba(15, 23, 42, 0.04)' }}>
+                    <h3 style={{ fontSize: '1rem', fontWeight: '700', color: '#1e293b', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '1.2rem' }}>🤝</span> Suggested Matches
+                    </h3>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '16px' }}>Review and accept to link the trades.</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {matchingDeals.map(md => {
+                         const matchedCats = [...currentCatNames].filter(cat => {
+                           const otherCatNames = new Set([
+                            ...(md.categories || []).map(c => c.name),
+                            ...transactions.filter(t => t.dealId === md.dealId).map(t => t.category)
+                          ]);
+                          return otherCatNames.has(cat);
+                         }).join(', ');
+                         
+                         const cpName = md.counterPartyId?.name || counterParties.find(c => c._id === md.counterPartyId)?.name || 'N/A';
+                         const agentName = md.counterPartyAgentId?.name || agents.find(a => a._id === md.counterPartyAgentId)?.name || 'N/A';
+
+                         return (
+                          <div key={md.dealId} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: '#fff', padding: '12px 14px', borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(15, 23, 42, 0.02)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ fontWeight: '600', color: '#0f172a', fontSize: '0.9rem' }}>{md.dealId}</div>
+                              <span className="badge badge-warning" style={{ fontSize: '0.65rem', padding: '2px 6px' }}>Match</span>
+                            </div>
+                            
+                            <div style={{ fontSize: '0.75rem', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <div><span style={{ color: '#94a3b8' }}>Party:</span> <span style={{ fontWeight: '500', color: '#334155' }}>{cpName}</span></div>
+                              <div><span style={{ color: '#94a3b8' }}>Agent:</span> <span style={{ fontWeight: '500', color: '#334155' }}>{agentName}</span></div>
+                              <div style={{ marginTop: '2px' }}><span style={{ color: '#94a3b8' }}>Matched:</span> <span style={{ fontWeight: '600', color: '#3b82f6' }}>{matchedCats}</span></div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                              <button className="btn btn-outline" style={{ borderColor: '#fca5a5', color: '#ef4444', padding: '4px 12px', fontSize: '0.7rem', flex: 1, minHeight: '26px', height: '26px' }} onClick={(e) => { e.target.closest('div').parentElement.style.display = 'none'; }}>Reject</button>
+                              <button className="btn btn-primary" style={{ padding: '4px 12px', fontSize: '0.7rem', flex: 1, minHeight: '26px', height: '26px' }} onClick={() => {
+                                 setAcceptedLinkedDeals(prev => ({
+                                   ...prev,
+                                   [currentDealId]: [...(prev[currentDealId] || []), md.dealId]
+                                 }));
+                              }}>Accept</button>
+                            </div>
+                          </div>
+                         );
+                      })}
                     </div>
-
-                    {isExpanded && (
-                      <div className="transaction-list">
-                        {/* Compact Summary Directly Under Category Header */}
-                        {txs.length > 0 && (
-                          <div className="category-compact-summary" style={{ background: '#f5f3ff', borderColor: '#ddd6fe', marginBottom: '16px' }}>
-                            <div className="cat-summary-col">
-                              <span className="cat-summary-label">Total Quantity:</span>
-                              <span className="cat-summary-val font-semibold">{totalQty.toLocaleString()} MT</span>
-                            </div>
-                            <div className="cat-summary-col">
-                              <span className="cat-summary-label">Sale Rate:</span>
-                              <span className="cat-summary-val font-bold text-purple-600">{rateSummary.primary}</span>
-                              {rateSummary.detail && (
-                                <span className="text-muted" style={{ fontSize: '0.7rem' }}>{rateSummary.detail}</span>
-                              )}
-                            </div>
-                            <div className="cat-summary-col">
-                              <span className="cat-summary-label">Total Sale:</span>
-                              <span className="cat-summary-val font-bold currency-text text-purple-600">{formatCurrency(totalAmt)}</span>
-                            </div>
-                          </div>
-                        )}
-                        {txs.length === 0 ? (
-                          <div className="empty-state">
-                            <p>No transactions added yet.</p>
-                            {(role === 'ADMIN' || role === 'MY_AGENT') && (
-                              <button className="btn btn-outline" style={{ marginTop: '8px' }} onClick={() => openTxModal('add', 'Sale', combo.category, combo.materialType)}>+ Add Sale</button>
-                            )}
-                          </div>
-                        ) : (
-                          <>
-                            {txs.map(tx => (
-                              <TransactionCard 
-                                key={tx._id || tx.id} tx={tx} 
-                                counterParty={tx.counterPartyId?.name ? tx.counterPartyId : counterParties.find(cp => cp._id === tx.counterPartyId)}
-                                counterAgent={tx.counterPartyAgentId?.name ? tx.counterPartyAgentId : agents.find(a => a._id === tx.counterPartyAgentId)}
-                                myAgent={tx.myAgentId?.name ? tx.myAgentId : agents.find(a => a._id === tx.myAgentId)}
-                                currentUserRole={role}
-                                onView={() => { setSelectedTx(tx); setIsTxDrawerOpen(true); }}
-                                onEdit={() => openTxModal('edit', 'Sale', tx.category, tx.materialType, tx)}
-                                onDelete={() => deleteTransaction(tx)}
-                                onProfileClick={(type, id) => openProfile(type, id, tx)}
-                              />
-                            ))}
-                          </>
-                        )}
-                      </div>
-                    )}
                   </div>
-                );
-              })}
+                )}
+
+
+                {(() => {
+                  const currentLinkedIds = acceptedLinkedDeals[currentDealId] || [];
+                  if (currentLinkedIds.length === 0) return null;
+                  
+                  return (
+                    <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '12px', padding: '16px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+                      <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: '#065f46', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '1.3rem' }}>🔗</span> Linked Deals Portfolio
+                      </h3>
+                      <p style={{ fontSize: '0.85rem', color: '#047857', marginBottom: '16px' }}>These deals are linked to the current deal. The Net Margin is calculated from their combined cross-trades.</p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {currentLinkedIds.map(ldId => {
+                           const ld = deals.find(d => d.dealId === ldId);
+                           if (!ld) return null;
+                           
+                           const ldTxs = visibleTransactions.filter(t => t.dealId === ldId);
+                           const pTotal = ldTxs.filter(t=>t.type==='Purchase').reduce((sum,t) => sum + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
+                           const sTotal = ldTxs.filter(t=>t.type==='Sale').reduce((sum,t) => sum + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
+                           const netMargin = sTotal - pTotal;
+                           
+                           return (
+                             <div key={ldId} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: '#fff', padding: '12px 16px', borderRadius: '8px', border: '1px solid #34d399' }}>
+                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                 <div style={{ fontWeight: '600', color: '#064e3b', fontSize: '0.95rem' }}>{ldId}</div>
+                                 <div style={{ fontSize: '0.8rem', color: '#059669' }}>Status: <span style={{ fontWeight: '500' }}>{ld.status}</span></div>
+                               </div>
+                               <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                 <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Cross-Trade Net Margin</div>
+                                 <div style={{ fontWeight: '700', fontSize: '1.1rem', color: netMargin >= 0 ? '#10b981' : '#ef4444' }}>
+                                   {netMargin >= 0 ? '+' : ''}{formatCurrency(netMargin)}
+                                 </div>
+                               </div>
+                             </div>
+                           );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
-          </div>
           )}
                   </>
                 )}
               />
+              )}
         </>
       )}
 
@@ -1345,6 +1661,7 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* END OF ALL DEALS DASHBOARD OR CATEGORY DASHBOARD */}
 
       {/* Modals & Drawers */}
       {isTxModalOpen && (
@@ -1372,6 +1689,7 @@ export default function App() {
           onSubmit={saveDeal}
         />
       )}
+
 
       {isAddCategoryOpen && currentDeal && (
         <div className="overlay" style={{ zIndex: 1000 }}>
@@ -1426,6 +1744,19 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {dealDrawerOpen && dealDrawerDeal && (
+        <DealDetailsDrawer
+          isOpen={dealDrawerOpen}
+          onClose={() => setDealDrawerOpen(false)}
+          deal={dealDrawerDeal}
+          transactions={transactions}
+          counterParties={counterParties}
+          agents={agents}
+          formatCurrency={formatCurrency}
+          calculateTransactionTotal={calculateTransactionTotal}
+        />
       )}
 
       {isTxDrawerOpen && selectedTx && (
@@ -1747,78 +2078,65 @@ function TransactionCard({ tx, counterParty, counterAgent, myAgent, currentUserR
   const isPurchase = tx.type === 'Purchase';
 
   return (
-    <div className={`transaction-card ${tx.type.toLowerCase()}`} onClick={onView}>
-      <div className="tx-header">
-        <span className="tx-company clickable-link" onClick={(e) => { e.stopPropagation(); onProfileClick('CounterParty', counterParty); }}>
+    <div className={`transaction-card ${tx.type.toLowerCase()}`} onClick={onView} style={{ padding: '8px 10px', gap: '4px', display: 'flex', flexDirection: 'column' }}>
+      <div className="tx-header" style={{ marginBottom: '4px', paddingLeft: 0 }}>
+        <span className="tx-company clickable-link" style={{ fontSize: '0.85rem' }} onClick={(e) => { e.stopPropagation(); onProfileClick('CounterParty', counterParty); }}>
           {counterParty?.name || 'Counter Party'}
         </span>
-        <span className={`badge ${isPurchase ? 'badge-primary' : 'badge-warning'}`}>{tx.type}</span>
+        <span className={`badge ${isPurchase ? 'badge-primary' : 'badge-warning'}`} style={{ padding: '2px 6px', fontSize: '0.65rem' }}>{tx.type}</span>
       </div>
       
       {/* Prominent Rate & Quantity & Total */}
-      <div className="tx-details-prominent">
-        <div className="tx-prominent-item">
-          <span className="prominent-label">Quantity:</span>
+      <div className="tx-details-prominent" style={{ marginBottom: '6px' }}>
+        <div className="tx-prominent-item" style={{ padding: '4px 8px', fontSize: '0.75rem' }}>
+          <span className="prominent-label" style={{ fontSize: '0.7rem' }}>Quantity:</span>
           <span className="prominent-value">{Number(tx.quantity).toLocaleString()} {tx.unit || 'MT'}</span>
         </div>
 
-        <div className={`tx-prominent-item rate-highlight ${isPurchase ? 'purchase' : 'sale'}`}>
-          <span className="prominent-label font-semibold">
+        <div className={`tx-prominent-item rate-highlight ${isPurchase ? 'purchase' : 'sale'}`} style={{ padding: '4px 8px' }}>
+          <span className="prominent-label font-semibold" style={{ fontSize: '0.7rem' }}>
             {isPurchase ? 'Purchase Rate:' : 'Sale Rate:'}
           </span>
-          <span className="prominent-rate-value">
+          <span className="prominent-rate-value" style={{ fontSize: '0.85rem' }}>
             {formatRate(tx.ratePerKg)}
           </span>
         </div>
 
-        <div className="tx-prominent-item total-highlight">
-          <span className="prominent-label font-bold">
+        <div className="tx-prominent-item total-highlight" style={{ padding: '4px 8px' }}>
+          <span className="prominent-label font-bold" style={{ fontSize: '0.7rem' }}>
             {isPurchase ? 'Total Purchase:' : 'Total Sale:'}
           </span>
-          <span className={`prominent-total-value currency-text ${isPurchase ? 'text-primary' : 'text-purple-600'}`}>
+          <span className={`prominent-total-value currency-text ${isPurchase ? 'text-primary' : 'text-purple-600'}`} style={{ fontSize: '0.9rem' }}>
             {formatCurrency(tx.totalAmount)}
           </span>
         </div>
       </div>
       
-      {/* Quick View Agent Rows (Req 31) */}
-      <div className="tx-agents-quickview" onClick={(e) => e.stopPropagation()}>
-        <div className="tx-agent-row">
+      {/* Quick View Agent Rows */}
+      <div className="tx-agents-quickview" style={{ padding: '6px 8px', marginBottom: '6px' }} onClick={(e) => e.stopPropagation()}>
+        <div className="tx-agent-row" style={{ padding: 0, fontSize: '0.7rem' }}>
           <span className="text-muted">Counter Agent:</span>
           <div className="tx-agent-name-wrap">
             <span className="font-semibold">{counterAgent?.name || 'N/A'}</span>
-            <button 
-              className="btn-view-details" 
-              title="View full Counter Agent Profile"
-              onClick={() => onProfileClick('Agent', counterAgent)}
-            >
-              View Details
-            </button>
+            <button className="btn-view-details" style={{ fontSize: '0.65rem' }} onClick={() => onProfileClick('Agent', counterAgent)}>View</button>
           </div>
         </div>
-
-        <div className="tx-agent-row">
+        <div className="tx-agent-row" style={{ padding: 0, fontSize: '0.7rem', marginTop: '2px' }}>
           <span className="text-muted">My Agent:</span>
           <div className="tx-agent-name-wrap">
             <span className="font-semibold">{myAgent?.name || 'N/A'}</span>
-            <button 
-              className="btn-view-details" 
-              title="View full My Agent Profile"
-              onClick={() => onProfileClick('Agent', myAgent)}
-            >
-              View Details
-            </button>
+            <button className="btn-view-details" style={{ fontSize: '0.65rem' }} onClick={() => onProfileClick('Agent', myAgent)}>View</button>
           </div>
         </div>
       </div>
 
-      <div className="tx-actions">
-        <button className="btn btn-ghost text-sm" onClick={(e) => { e.stopPropagation(); onView(); }}><Eye size={14}/> View</button>
+      <div className="tx-actions" style={{ paddingTop: '6px', marginTop: 0, display: 'flex', gap: '4px', justifyContent: 'center' }}>
+        <button className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={(e) => { e.stopPropagation(); onView(); }}><Eye size={12}/> View</button>
         {(currentUserRole === 'ADMIN' || currentUserRole === 'MY_AGENT') && (
-          <button className="btn btn-ghost text-sm" onClick={(e) => { e.stopPropagation(); onEdit(); }}><Edit size={14}/> Edit</button>
+          <button className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={(e) => { e.stopPropagation(); onEdit(); }}><Edit size={12}/> Edit</button>
         )}
         {currentUserRole === 'ADMIN' && (
-          <button className="btn btn-ghost text-sm text-danger" onClick={(e) => { e.stopPropagation(); onDelete(); }}><Trash2 size={14}/> Delete</button>
+          <button className="btn btn-ghost text-danger" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={(e) => { e.stopPropagation(); onDelete(); }}><Trash2 size={12}/> Delete</button>
         )}
       </div>
     </div>
@@ -2299,6 +2617,85 @@ function DealModal({ isOpen, onClose, mode, initialData, currentDeal, counterPar
               </button>
             </div>
           </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------
+// DEAL DETAILS DRAWER
+// ----------------------------------------------------
+function DealDetailsDrawer({ isOpen, onClose, deal, transactions, counterParties, agents, formatCurrency, calculateTransactionTotal }) {
+  if (!isOpen || !deal) return null;
+  const dealTxs = transactions.filter(t => t.dealId === deal.dealId);
+  const totalPurchase = dealTxs.filter(t => t.type === 'Purchase').reduce((s, t) => s + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
+  const totalSale = dealTxs.filter(t => t.type === 'Sale').reduce((s, t) => s + calculateTransactionTotal(Number(t.quantity), t.unit, t.ratePerKg).totalAmount, 0);
+  const netAmount = totalSale - totalPurchase;
+  
+  const cp = counterParties.find(c => c._id === deal.counterPartyId || c._id === deal.counterPartyId?._id);
+  const ca = agents.find(a => a._id === deal.counterPartyAgentId || a._id === deal.counterPartyAgentId?._id);
+  const ma = agents.find(a => a._id === deal.myAgentId || a._id === deal.myAgentId?._id);
+
+  return (
+    <div className="overlay" style={{ justifyContent: 'flex-end', zIndex: 2000 }} onClick={onClose}>
+      <div className="drawer" onClick={e => e.stopPropagation()}>
+        <div className="drawer-header">
+          <div>
+            <h3>Deal Relationship & Details</h3>
+            <span className="text-sm text-muted">ID: {deal.dealId}</span>
+          </div>
+          <button className="btn-icon" onClick={onClose}><X size={20} /></button>
+        </div>
+        
+        <div className="drawer-content" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+             <span className={`badge ${deal.status === 'Confirmed' ? 'badge-success' : deal.status === 'Enquiry' ? 'badge-warning' : 'badge-primary'}`}>
+               {deal.status}
+             </span>
+             <span className="text-sm text-muted">Created: {new Date(deal.date).toLocaleDateString()}</span>
+           </div>
+
+           <div className="relationship-container">
+             <div className="rel-header"><span>Relationship & Finances</span></div>
+             
+             <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span className="text-muted">Counter Party:</span>
+                  <span className="font-semibold">{cp?.name || 'N/A'}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span className="text-muted">Counter Agent:</span>
+                  <span className="font-semibold">{ca?.name || 'N/A'}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span className="text-muted">My Agent:</span>
+                  <span className="font-semibold">{ma?.name || 'N/A'}</span>
+                </div>
+                <hr style={{ borderColor: '#e2e8f0', margin: '8px 0' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span className="text-muted">Total Purchase:</span>
+                  <span className="font-semibold" style={{ color: 'var(--purchase-color)' }}>{formatCurrency(totalPurchase)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span className="text-muted">Total Sale:</span>
+                  <span className="font-semibold" style={{ color: 'var(--sale-color)' }}>{formatCurrency(totalSale)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem', fontWeight: 700, marginTop: '8px' }}>
+                  <span>Net Margin:</span>
+                  <span style={{ color: netAmount >= 0 ? 'var(--success)' : 'var(--danger)' }}>{formatCurrency(netAmount)}</span>
+                </div>
+             </div>
+           </div>
+           
+           <div style={{ padding: '16px', background: '#ecfdf5', borderRadius: '12px', border: '1px solid #a7f3d0' }}>
+             <h4 style={{ margin: '0 0 12px 0', color: '#065f46', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+               <span>🔗</span> Linked Deals Portfolio
+             </h4>
+             <p style={{ fontSize: '0.85rem', color: '#047857', margin: 0 }}>
+               View full deal portfolio and matches in the main Deals dashboard mode. For now, this is a summary of the current deal.
+             </p>
+           </div>
         </div>
       </div>
     </div>
