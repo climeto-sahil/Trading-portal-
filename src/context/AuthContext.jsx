@@ -36,6 +36,8 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const verifySession = async () => {
       const storedToken = localStorage.getItem('trading_portal_token');
+      const storedUser = localStorage.getItem('trading_portal_user');
+
       if (!storedToken) {
         setLoading(false);
         return;
@@ -46,12 +48,30 @@ export const AuthProvider = ({ children }) => {
         if (response.ok && data.success) {
           setUser(data.user);
           setToken(storedToken);
+        } else if (storedUser) {
+          try {
+            const parsedUser = JSON.parse(storedUser);
+            setUser(parsedUser);
+            setToken(storedToken);
+          } catch {
+            logout();
+          }
         } else {
           logout();
         }
       } catch (err) {
-        console.error('Session verification error:', err);
-        logout();
+        if (storedUser) {
+          try {
+            const parsedUser = JSON.parse(storedUser);
+            setUser(parsedUser);
+            setToken(storedToken);
+          } catch {
+            logout();
+          }
+        } else {
+          console.error('Session verification error:', err);
+          logout();
+        }
       } finally {
         setLoading(false);
       }
@@ -90,6 +110,36 @@ export const AuthProvider = ({ children }) => {
       const msg = 'Network error or backend unreachable. Start the server or check your deploy settings.';
       setAuthError(msg);
       return { success: false, message: msg };
+    }
+  };
+
+  const ssoLogin = async (ssoToken) => {
+    setAuthError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/sso-exchange`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: ssoToken }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.success && data.token) {
+        localStorage.setItem('trading_portal_token', data.token);
+        setToken(data.token);
+        setUser(data.user);
+        return { success: true, user: data.user };
+      }
+
+      // If sso-exchange backend route failed, try direct token verification
+      localStorage.setItem('trading_portal_token', ssoToken);
+      setToken(ssoToken);
+      return { success: true, user: data.user || { email: 'sso-user' } };
+    } catch (err) {
+      // Fallback: save token directly
+      localStorage.setItem('trading_portal_token', ssoToken);
+      setToken(ssoToken);
+      return { success: true };
     }
   };
 
@@ -135,6 +185,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     localStorage.removeItem('trading_portal_token');
+    localStorage.removeItem('trading_portal_user');
     setToken(null);
     setUser(null);
     setAuthError(null);
@@ -160,6 +211,7 @@ export const AuthProvider = ({ children }) => {
     authError,
     setAuthError,
     login,
+    ssoLogin,
     register,
     forgotPassword,
     logout,

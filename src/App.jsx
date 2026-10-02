@@ -10,6 +10,7 @@ import {
 import { useAuth } from './context/AuthContext.jsx';
 import LoginPage from './components/LoginPage.jsx';
 import SignupPage from './components/SignupPage.jsx';
+import SsoPage from './components/SsoPage.jsx';
 import AdminUserManagement from './components/AdminUserManagement.jsx';
 import AllDealsDashboard from './components/AllDealsDashboard.jsx';
 import { calculateTransactionTotal, aggregateTransactions, getRateSummaryForTransactions } from './utils/calculations.js';
@@ -845,8 +846,17 @@ export default function App() {
     );
   }
 
-  // Not Logged In -> Render Login or Signup (Requirements 3 & 4)
+  // Check if current URL is SSO landing
+  const isSsoLanding = typeof window !== 'undefined' && (
+    window.location.pathname.includes('/sso') ||
+    new URLSearchParams(window.location.search).has('token')
+  );
+
+  // Not Logged In -> Render SSO, Login, or Signup
   if (!isAuthenticated) {
+    if (isSsoLanding) {
+      return <SsoPage />;
+    }
     if (authView === 'signup') {
       return <SignupPage onNavigateToLogin={() => setAuthView('login')} />;
     }
