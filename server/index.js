@@ -26,9 +26,12 @@ const hasFrontendBuild = fs.existsSync(distPath);
 
 // Middleware
 app.use(cors({
-  origin: '*',
+  origin: (origin, callback) => callback(null, true), // Dynamic origin reflection allows credentials: true
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Climeto-Client', 'Accept'],
 }));
+app.options('*', cors());
 app.use(express.json());
 
 // API Routes
