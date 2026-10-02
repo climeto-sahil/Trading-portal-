@@ -32,9 +32,57 @@ export const AuthProvider = ({ children }) => {
     return { response, data };
   };
 
-  // Check existing session
+  // Check existing session or perform SSO token exchange
   useEffect(() => {
     const verifySession = async () => {
+      // 1. Check if an incoming SSO token exists in URL or hash
+      const hash = window.location.hash?.replace(/^#/, '').trim();
+      const searchParams =
+        hash && hash.includes('token=')
+          ? new URLSearchParams(hash)
+          : new URLSearchParams(window.location.search);
+
+      const ssoTokenFromUrl = searchParams.get('token') || (typeof window !== 'undefined' ? sessionStorage.getItem('pending_sso_token') : null);
+
+      if (ssoTokenFromUrl) {
+        try {
+          const exchangeRes = await fetch(`${API_BASE_URL}/api/auth/sso-exchange`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: ssoTokenFromUrl }),
+          });
+
+          const exchangeData = await exchangeRes.json().catch(() => ({}));
+
+          if (exchangeRes.ok && exchangeData.success && exchangeData.token) {
+            sessionStorage.removeItem('pending_sso_token');
+            localStorage.setItem('trading_portal_token', exchangeData.token);
+            if (exchangeData.user) {
+              localStorage.setItem('trading_portal_user', JSON.stringify(exchangeData.user));
+            }
+            setToken(exchangeData.token);
+            setUser(exchangeData.user);
+
+            // Clean address bar URL
+            searchParams.delete('token');
+            searchParams.delete('climeto_sso');
+            searchParams.delete('tokenKey');
+            searchParams.delete('userKey');
+            searchParams.delete('currentUser');
+
+            const cleanPath = window.location.pathname.replace(/\/sso\/?$/, '') || '/';
+            const cleanQuery = searchParams.toString() ? `?${searchParams.toString()}` : '';
+            window.history.replaceState({}, '', cleanPath + cleanQuery);
+
+            setLoading(false);
+            return;
+          }
+        } catch (err) {
+          console.error('SSO Exchange failed during verifySession:', err);
+        }
+      }
+
+      // 2. Standard session verification
       const storedToken = localStorage.getItem('trading_portal_token');
       const storedUser = localStorage.getItem('trading_portal_user');
 

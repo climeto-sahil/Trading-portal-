@@ -22,19 +22,17 @@ export function applyClimetoSsoFromUrl() {
       ? new URLSearchParams(hash)
       : new URLSearchParams(window.location.search);
 
-  if (params.get('climeto_sso') !== '1') return false;
-
   const token = readSsoParam(params, 'token');
+  const isSso = params.get('climeto_sso') === '1' || Boolean(token) || window.location.pathname.includes('/sso');
+
+  if (!isSso || !token) return false;
+
   const tokenKey = params.get('tokenKey') || 'trading_portal_token';
   const userKey = params.get('userKey') || 'trading_portal_user';
   const currentUser = readSsoParam(params, 'currentUser');
 
-  if (token) {
-    localStorage.setItem('trading_portal_token', token);
-    if (tokenKey !== 'trading_portal_token') {
-      localStorage.setItem(tokenKey, token);
-    }
-  }
+  // Stash in sessionStorage so AuthContext can exchange it with backend
+  sessionStorage.setItem('pending_sso_token', token);
 
   if (currentUser) {
     try {
@@ -47,16 +45,5 @@ export function applyClimetoSsoFromUrl() {
     }
   }
 
-  // Remove SSO parameters from address bar cleanly
-  ['climeto_sso', 'token', 'tokenKey', 'userKey', 'currentUser'].forEach((k) =>
-    params.delete(k),
-  );
-
-  const clean =
-    window.location.pathname +
-    (params.toString() ? `?${params.toString()}` : '') +
-    window.location.hash;
-
-  window.history.replaceState({}, '', clean);
   return Boolean(token);
 }
