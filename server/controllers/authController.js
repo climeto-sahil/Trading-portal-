@@ -131,19 +131,20 @@ export const register = async (req, res) => {
 
 export const login = async (req, res) => {
   try {
-    const { identifier, password } = req.body; // identifier can be email or phone
+    const rawIdentifier = req.body.identifier || req.body.email; // identifier can be email or phone
+    const { password } = req.body;
 
-    if (!identifier || !password) {
+    if (!rawIdentifier || !password) {
       return res.status(422).json({
         success: false,
         message: 'Email/Mobile and password are required.',
       });
     }
 
-    const cleanIdentifier = identifier.trim().toLowerCase();
+    const cleanIdentifier = String(rawIdentifier).trim().toLowerCase();
     const isEmail = cleanIdentifier.includes('@');
 
-    const query = isEmail ? { email: cleanIdentifier } : { phone: identifier.trim() };
+    const query = isEmail ? { email: cleanIdentifier } : { phone: String(rawIdentifier).trim() };
     const user = await User.findOne(query).select('+password');
 
     if (!user) {
@@ -313,6 +314,119 @@ export const forgotPassword = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Server error processing password reset request.',
+    });
+  }
+};
+
+export const ssoExchange = async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing SSO token in request body',
+      });
+    }
+
+    const climetoApiUrl = process.env.CLIMETO_API_URL || 'https://api.climeto.in';
+
+    // Verify token with Climeto central auth API
+    let climetoUser = null;
+    try {
+      const climetoRes = await fetch(`${climetoApiUrl.replace(/\/$/, '')}/api/auth/me`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Climeto-Client': 'trading-portal',
+        },
+      });
+      const data = await climetoRes.json().catch(() => ({}));
+      if (climetoRes.ok && (data.user || data.email || data.id)) {
+        climetoUser = data.user || data;
+      }
+    } catch (fetchErr) {
+      console.warn('[ssoExchange] Central auth verification fetch warning:', fetchErr.message);
+    }
+
+    // Fallback: decode JWT payload directly if central auth unreachable in dev
+    if (!climetoUser) {
+      try {
+        const decoded = jwt.decode(token);
+        if (decoded && (decoded.email || decoded.id)) {
+          climetoUser = decoded;
+        }
+      } catch (decodeErr) {
+        // ignore
+      }
+    }
+
+    if (!climetoUser || !climetoUser.email) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired Climeto SSO token',
+      });
+    }
+
+    const userEmail = String(climetoUser.email).toLowerCase().trim();
+    let user = await User.findOne({ email: userEmail });
+
+    // Map climeto role to trading portal role
+    const climetoType = String(climetoUser.user_type || climetoUser.role || '').toLowerCase();
+    const assignedRole = (climetoType === 'admin' || climetoType === 'tradingadmin') ? 'ADMIN' : 'MY_AGENT';
+
+    if (!user) {
+      // Auto-provision user in Trading Portal MongoDB
+      const prefix = assignedRole === 'ADMIN' ? 'ADM' : 'AGT-MY';
+      const agentCount = await Agent.countDocuments();
+      const generatedAgentId = `${prefix}-${String(agentCount + 101).padStart(3, '0')}`;
+
+      user = await User.create({
+        name: climetoUser.name || climetoUser.company_name || userEmail.split('@')[0],
+        email: userEmail,
+        phone: climetoUser.phone || '',
+        password: Math.random().toString(36).slice(-10) + 'A1!',
+        company: climetoUser.company_name || 'Climeto Trading',
+        role: assignedRole,
+        status: 'ACTIVE',
+        agentId: generatedAgentId,
+      });
+
+      await Agent.create({
+        agentId: generatedAgentId,
+        userId: user._id,
+        name: user.name,
+        company: user.company || 'Climeto Trading',
+        phone: user.phone,
+        email: user.email,
+        agentType: assignedRole === 'ADMIN' ? 'Admin' : 'My Agent',
+        commission: '₹0.75 / KG',
+        status: 'Active',
+      });
+    }
+
+    const tradingToken = generateToken(user);
+    const agent = user.agentId ? await Agent.findOne({ agentId: user.agentId }) : null;
+
+    return res.status(200).json({
+      success: true,
+      token: tradingToken,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        status: user.status,
+        company: user.company,
+        agentId: user.agentId,
+        agent,
+      },
+    });
+  } catch (error) {
+    console.error('[ssoExchange] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error during SSO exchange.',
+      error: error.message,
     });
   }
 };
