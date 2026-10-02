@@ -343,7 +343,46 @@ export default function LoginPage({ onNavigateToSignup }) {
               </button>
             </form>
 
-            {/* ── DEVELOPER TEST ACCOUNTS REMOVED ── */}
+            {/* Divider with text */}
+            <div style={{
+              display: 'flex', alignItems: 'center', margin: '20px 0 16px', gap: '10px'
+            }}>
+              <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
+              <span style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Or Unified Access
+              </span>
+              <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
+            </div>
+
+            {/* Sign in with Climeto SSO Button */}
+            <button
+              type="button"
+              onClick={() => {
+                const portalUrl = import.meta.env.VITE_PORTAL_URL || 'https://portal.climeto.in';
+                window.location.href = portalUrl;
+              }}
+              style={{
+                width: '100%', height: '44px',
+                background: '#f8fafc',
+                border: '1.5px solid #cbd5e1',
+                borderRadius: '12px',
+                color: '#0f172a',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                transition: 'all 0.2s',
+                fontFamily: 'Inter, sans-serif',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#94a3b8'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#cbd5e1'; }}
+            >
+              <span>🌿</span>
+              <span>Sign in with Climeto SSO Hub</span>
+            </button>
 
             {/* Create Account Link */}
             <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '13px', color: '#64748b' }}>

@@ -11,6 +11,7 @@ import { useAuth } from './context/AuthContext.jsx';
 import LoginPage from './components/LoginPage.jsx';
 import SignupPage from './components/SignupPage.jsx';
 import SsoPage from './components/SsoPage.jsx';
+import PortalSwitcher from './components/PortalSwitcher.jsx';
 import AdminUserManagement from './components/AdminUserManagement.jsx';
 import AllDealsDashboard from './components/AllDealsDashboard.jsx';
 import { calculateTransactionTotal, aggregateTransactions, getRateSummaryForTransactions } from './utils/calculations.js';
@@ -934,8 +935,14 @@ export default function App() {
           )}
         </div>
 
-        {/* Right: User + Actions */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+        {/* Right: Portal Switcher + User + Actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+
+          {/* Climeto Portal Switcher */}
+          <PortalSwitcher />
+
+          {/* Divider */}
+          <div style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.1)' }} />
 
           {/* User Profile */}
           <div
@@ -992,8 +999,8 @@ export default function App() {
 
           {/* Logout */}
           <button
-            onClick={logout}
-            title="Sign out"
+            onClick={() => logout(true)}
+            title="Sign out to Climeto Hub"
             style={{
               display: 'flex', alignItems: 'center', gap: '6px',
               padding: '7px 14px', borderRadius: '9px', border: '1px solid rgba(239,68,68,0.25)',

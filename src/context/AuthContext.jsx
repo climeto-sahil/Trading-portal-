@@ -60,6 +60,7 @@ export const AuthProvider = ({ children }) => {
           if (exchangeRes.ok && exchangeData.success && exchangeData.token) {
             sessionStorage.removeItem('pending_sso_token');
             localStorage.setItem('trading_portal_token', exchangeData.token);
+            localStorage.setItem('climeto_sso_raw_token', ssoTokenFromUrl);
             if (exchangeData.user) {
               localStorage.setItem('trading_portal_user', JSON.stringify(exchangeData.user));
             }
@@ -234,12 +235,19 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
+  const logout = (redirectToPortal = false) => {
     localStorage.removeItem('trading_portal_token');
     localStorage.removeItem('trading_portal_user');
+    localStorage.removeItem('climeto_sso_raw_token');
+    sessionStorage.removeItem('pending_sso_token');
     setToken(null);
     setUser(null);
     setAuthError(null);
+
+    if (redirectToPortal) {
+      const portalUrl = import.meta.env.VITE_PORTAL_URL || 'https://portal.climeto.in';
+      window.location.href = `${portalUrl.replace(/\/$/, '')}?signedOut=1`;
+    }
   };
 
   const refreshUser = async () => {
