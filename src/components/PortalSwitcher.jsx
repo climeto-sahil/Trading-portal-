@@ -2,6 +2,52 @@ import { useEffect, useRef, useState } from 'react';
 import { LayoutGrid, ChevronDown, ExternalLink } from 'lucide-react';
 import { fetchOtherPortals, switchToPortal } from '../lib/portalSwitcher.js';
 
+const ICON_MAP = {
+  'shield': '🛡️',
+  'monitor': '🖥️',
+  'scan': '📄',
+  'file-spreadsheet': '📋',
+  'filespreadsheet': '📋',
+  'file-search': '🔍',
+  'filesearch': '🔍',
+  'wallet': '💰',
+  'message-square': '💬',
+  'messagesquare': '💬',
+  'globe': '🌐',
+  'phone': '📞',
+  'file-text': '📄',
+  'filetext': '📄',
+  'trending-up': '📈',
+  'trendingup': '📈',
+  'leaf': '🌿',
+};
+
+const APP_ID_MAP = {
+  'climeto_portal': '🌿',
+  'climeto_admin': '🛡️',
+  'climeto_desktop': '🖥️',
+  'ocr_desktop': '📄',
+  'ocr_data_prep': '📋',
+  'cpcb_scraper': '🔍',
+  'hr_payroll': '💰',
+  'rag_chat': '💬',
+  'web_tracker': '🌐',
+  'call_intelligence_admin': '📞',
+  'pdf_tools': '📄',
+  'trading_portal': '💹',
+  'growth_command': '📈',
+};
+
+function renderAppIcon(app) {
+  if (app.appId && APP_ID_MAP[app.appId]) return APP_ID_MAP[app.appId];
+  if (app.icon) {
+    const cleanKey = String(app.icon).toLowerCase().replace(/[\s_-]+/g, '');
+    if (ICON_MAP[cleanKey]) return ICON_MAP[cleanKey];
+    if (typeof app.icon === 'string' && app.icon.length <= 2) return app.icon;
+  }
+  return '🌿';
+}
+
 export default function PortalSwitcher() {
   const [open, setOpen] = useState(false);
   const [apps, setApps] = useState([]);
@@ -85,13 +131,13 @@ export default function PortalSwitcher() {
           position: 'absolute',
           right: 0,
           top: 'calc(100% + 8px)',
-          width: '280px',
-          maxHeight: '400px',
+          width: '310px',
+          maxHeight: '420px',
           overflowY: 'auto',
           background: '#0f172a',
           border: '1px solid rgba(255, 255, 255, 0.15)',
           borderRadius: '14px',
-          boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.6)',
+          boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.7)',
           zIndex: 500,
           padding: '8px',
           fontFamily: 'Inter, sans-serif',
@@ -133,8 +179,8 @@ export default function PortalSwitcher() {
                 width: '100%',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '10px',
-                padding: '10px',
+                gap: '12px',
+                padding: '9px 10px',
                 borderRadius: '10px',
                 border: 'none',
                 background: 'transparent',
@@ -147,27 +193,28 @@ export default function PortalSwitcher() {
               onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
             >
               <div style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                background: 'rgba(255, 255, 255, 0.07)',
+                width: '34px',
+                height: '34px',
+                borderRadius: '9px',
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid rgba(255, 255, 255, 0.06)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: '16px',
+                fontSize: '18px',
                 flexShrink: 0,
               }}>
-                {app.icon || '🌿'}
+                {renderAppIcon(app)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {app.name}
                 </div>
-                <div style={{ fontSize: '10px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: '11px', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '1px' }}>
                   {switching === app.appId ? 'Opening with SSO…' : (app.description || 'Open portal')}
                 </div>
               </div>
-              <ExternalLink size={13} color="#64748b" style={{ flexShrink: 0 }} />
+              <ExternalLink size={14} color="#64748b" style={{ flexShrink: 0 }} />
             </button>
           ))}
         </div>
