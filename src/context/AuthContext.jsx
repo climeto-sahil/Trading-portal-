@@ -8,7 +8,10 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
 
-  const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+  // Dynamic API Base URL: in production browser, always use relative path '' to eliminate CORS
+  const API_BASE_URL = (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
+    ? ''
+    : (import.meta.env.VITE_API_URL || '');
 
   // Helper to make authenticated API requests
   const authFetch = async (url, options = {}) => {
