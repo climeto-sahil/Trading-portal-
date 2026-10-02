@@ -147,15 +147,90 @@ export const login = async (req, res) => {
     const query = isEmail ? { email: cleanIdentifier } : { phone: String(rawIdentifier).trim() };
     const user = await User.findOne(query).select('+password');
 
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password.',
-      });
+    let isMatch = false;
+    if (user) {
+      isMatch = await user.comparePassword(password);
     }
 
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
+    // If user not in MongoDB or password doesn't match, attempt Climeto central auth
+    if (!user || !isMatch) {
+      const climetoApiUrl = process.env.CLIMETO_API_URL || 'https://api.climeto.in';
+      try {
+        const climetoRes = await fetch(`${climetoApiUrl.replace(/\/$/, '')}/api/auth/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Climeto-Client': 'trading-portal',
+          },
+          body: JSON.stringify({ email: cleanIdentifier, password, force: true }),
+        });
+        const climetoData = await climetoRes.json().catch(() => ({}));
+        if (climetoRes.ok && (climetoData.user || climetoData.token)) {
+          const cUser = climetoData.user || {};
+          const climetoType = String(cUser.user_type || cUser.userType || cUser.role || '').toLowerCase().replace(/[\s_-]+/g, '').trim();
+          const assignedRole = (climetoType === 'admin' || climetoType === 'tradingadmin') ? 'ADMIN' : 'MY_AGENT';
+
+          if (!user) {
+            const prefix = assignedRole === 'ADMIN' ? 'ADM' : 'AGT-MY';
+            const agentCount = await Agent.countDocuments();
+            const generatedAgentId = `${prefix}-${String(agentCount + 101).padStart(3, '0')}`;
+
+            user = await User.create({
+              name: cUser.name || cUser.company_name || cleanIdentifier.split('@')[0],
+              email: cleanIdentifier,
+              phone: cUser.phone || '',
+              password,
+              company: cUser.company_name || 'Climeto Sustainable Services Pvt. Ltd.',
+              role: assignedRole,
+              status: 'ACTIVE',
+              agentId: generatedAgentId,
+            });
+
+            await Agent.create({
+              agentId: generatedAgentId,
+              userId: user._id,
+              name: user.name,
+              company: user.company || 'Climeto Sustainable Services Pvt. Ltd.',
+              phone: user.phone || '',
+              email: user.email,
+              agentType: assignedRole === 'ADMIN' ? 'Admin' : 'My Agent',
+              commission: '₹0.75 / KG',
+              status: 'Active',
+            });
+          } else {
+            user.role = assignedRole;
+            user.password = password;
+            user.status = 'ACTIVE';
+            if (!user.agentId) {
+              const prefix = assignedRole === 'ADMIN' ? 'ADM' : 'AGT-MY';
+              const agentCount = await Agent.countDocuments();
+              user.agentId = `${prefix}-${String(agentCount + 101).padStart(3, '0')}`;
+            }
+            await user.save();
+
+            let existingAgent = await Agent.findOne({ agentId: user.agentId });
+            if (!existingAgent && user.agentId) {
+              await Agent.create({
+                agentId: user.agentId,
+                userId: user._id,
+                name: user.name,
+                company: user.company || 'Climeto Sustainable Services Pvt. Ltd.',
+                phone: user.phone || '',
+                email: user.email,
+                agentType: assignedRole === 'ADMIN' ? 'Admin' : 'My Agent',
+                commission: '₹0.75 / KG',
+                status: 'Active',
+              });
+            }
+          }
+          isMatch = true;
+        }
+      } catch (climetoErr) {
+        console.warn('[login] Central auth fallback attempt failed:', climetoErr.message);
+      }
+    }
+
+    if (!user || !isMatch) {
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password.',
@@ -370,7 +445,14 @@ export const ssoExchange = async (req, res) => {
     let user = await User.findOne({ email: userEmail });
 
     // Map climeto role to trading portal role
-    const climetoType = String(climetoUser.user_type || climetoUser.role || '').toLowerCase();
+    const climetoType = String(
+      climetoUser.user_type ||
+      climetoUser.userType ||
+      climetoUser.role ||
+      climetoUser.type ||
+      ''
+    ).toLowerCase().replace(/[\s_-]+/g, '').trim();
+
     const assignedRole = (climetoType === 'admin' || climetoType === 'tradingadmin') ? 'ADMIN' : 'MY_AGENT';
 
     if (!user) {
@@ -384,7 +466,7 @@ export const ssoExchange = async (req, res) => {
         email: userEmail,
         phone: climetoUser.phone || '',
         password: Math.random().toString(36).slice(-10) + 'A1!',
-        company: climetoUser.company_name || 'Climeto Trading',
+        company: climetoUser.company_name || 'Climeto Sustainable Services Pvt. Ltd.',
         role: assignedRole,
         status: 'ACTIVE',
         agentId: generatedAgentId,
@@ -394,13 +476,49 @@ export const ssoExchange = async (req, res) => {
         agentId: generatedAgentId,
         userId: user._id,
         name: user.name,
-        company: user.company || 'Climeto Trading',
-        phone: user.phone,
+        company: user.company || 'Climeto Sustainable Services Pvt. Ltd.',
+        phone: user.phone || '',
         email: user.email,
         agentType: assignedRole === 'ADMIN' ? 'Admin' : 'My Agent',
         commission: '₹0.75 / KG',
         status: 'Active',
       });
+    } else {
+      // Sync existing user role & ensure active status and agentId
+      let modified = false;
+      if (user.role !== assignedRole) {
+        user.role = assignedRole;
+        modified = true;
+      }
+      if (!user.agentId) {
+        const prefix = assignedRole === 'ADMIN' ? 'ADM' : 'AGT-MY';
+        const agentCount = await Agent.countDocuments();
+        user.agentId = `${prefix}-${String(agentCount + 101).padStart(3, '0')}`;
+        modified = true;
+      }
+      if (user.status !== 'ACTIVE') {
+        user.status = 'ACTIVE';
+        modified = true;
+      }
+      if (modified) {
+        await user.save();
+      }
+
+      // Ensure Agent record is present in MongoDB
+      let existingAgent = await Agent.findOne({ agentId: user.agentId });
+      if (!existingAgent && user.agentId) {
+        await Agent.create({
+          agentId: user.agentId,
+          userId: user._id,
+          name: user.name,
+          company: user.company || 'Climeto Sustainable Services Pvt. Ltd.',
+          phone: user.phone || '',
+          email: user.email,
+          agentType: assignedRole === 'ADMIN' ? 'Admin' : 'My Agent',
+          commission: '₹0.75 / KG',
+          status: 'Active',
+        });
+      }
     }
 
     const tradingToken = generateToken(user);
