@@ -170,10 +170,13 @@ export const login = async (req, res) => {
           const climetoType = String(cUser.user_type || cUser.userType || cUser.role || '').toLowerCase().replace(/[\s_-]+/g, '').trim();
           const assignedRole = (climetoType === 'admin' || climetoType === 'tradingadmin') ? 'ADMIN' : 'MY_AGENT';
 
+          const generateSafeAgentId = (r) => {
+            const prefix = r === 'ADMIN' ? 'ADM' : 'AGT-MY';
+            return `${prefix}-${Date.now().toString().slice(-4)}${Math.floor(100 + Math.random() * 900)}`;
+          };
+
           if (!user) {
-            const prefix = assignedRole === 'ADMIN' ? 'ADM' : 'AGT-MY';
-            const agentCount = await Agent.countDocuments();
-            const generatedAgentId = `${prefix}-${String(agentCount + 101).padStart(3, '0')}`;
+            const generatedAgentId = generateSafeAgentId(assignedRole);
 
             user = await User.create({
               name: cUser.name || cUser.company_name || cleanIdentifier.split('@')[0],
@@ -186,32 +189,9 @@ export const login = async (req, res) => {
               agentId: generatedAgentId,
             });
 
-            await Agent.create({
-              agentId: generatedAgentId,
-              userId: user._id,
-              name: user.name,
-              company: user.company || 'Climeto Sustainable Services Pvt. Ltd.',
-              phone: user.phone || '',
-              email: user.email,
-              agentType: assignedRole === 'ADMIN' ? 'Admin' : 'My Agent',
-              commission: '₹0.75 / KG',
-              status: 'Active',
-            });
-          } else {
-            user.role = assignedRole;
-            user.password = password;
-            user.status = 'ACTIVE';
-            if (!user.agentId) {
-              const prefix = assignedRole === 'ADMIN' ? 'ADM' : 'AGT-MY';
-              const agentCount = await Agent.countDocuments();
-              user.agentId = `${prefix}-${String(agentCount + 101).padStart(3, '0')}`;
-            }
-            await user.save();
-
-            let existingAgent = await Agent.findOne({ agentId: user.agentId });
-            if (!existingAgent && user.agentId) {
+            try {
               await Agent.create({
-                agentId: user.agentId,
+                agentId: generatedAgentId,
                 userId: user._id,
                 name: user.name,
                 company: user.company || 'Climeto Sustainable Services Pvt. Ltd.',
@@ -221,6 +201,35 @@ export const login = async (req, res) => {
                 commission: '₹0.75 / KG',
                 status: 'Active',
               });
+            } catch (agentErr) {
+              console.warn('[login] Warning creating agent profile:', agentErr.message);
+            }
+          } else {
+            user.role = assignedRole;
+            user.password = password;
+            user.status = 'ACTIVE';
+            if (!user.agentId) {
+              user.agentId = generateSafeAgentId(assignedRole);
+            }
+            await user.save();
+
+            try {
+              let existingAgent = await Agent.findOne({ agentId: user.agentId });
+              if (!existingAgent && user.agentId) {
+                await Agent.create({
+                  agentId: user.agentId,
+                  userId: user._id,
+                  name: user.name,
+                  company: user.company || 'Climeto Sustainable Services Pvt. Ltd.',
+                  phone: user.phone || '',
+                  email: user.email,
+                  agentType: assignedRole === 'ADMIN' ? 'Admin' : 'My Agent',
+                  commission: '₹0.75 / KG',
+                  status: 'Active',
+                });
+              }
+            } catch (agentErr) {
+              console.warn('[login] Warning syncing agent profile:', agentErr.message);
             }
           }
           isMatch = true;
@@ -455,11 +464,14 @@ export const ssoExchange = async (req, res) => {
 
     const assignedRole = (climetoType === 'admin' || climetoType === 'tradingadmin') ? 'ADMIN' : 'MY_AGENT';
 
+    const generateSafeAgentId = (r) => {
+      const prefix = r === 'ADMIN' ? 'ADM' : 'AGT-MY';
+      return `${prefix}-${Date.now().toString().slice(-4)}${Math.floor(100 + Math.random() * 900)}`;
+    };
+
     if (!user) {
       // Auto-provision user in Trading Portal MongoDB
-      const prefix = assignedRole === 'ADMIN' ? 'ADM' : 'AGT-MY';
-      const agentCount = await Agent.countDocuments();
-      const generatedAgentId = `${prefix}-${String(agentCount + 101).padStart(3, '0')}`;
+      const generatedAgentId = generateSafeAgentId(assignedRole);
 
       user = await User.create({
         name: climetoUser.name || climetoUser.company_name || userEmail.split('@')[0],
@@ -472,17 +484,21 @@ export const ssoExchange = async (req, res) => {
         agentId: generatedAgentId,
       });
 
-      await Agent.create({
-        agentId: generatedAgentId,
-        userId: user._id,
-        name: user.name,
-        company: user.company || 'Climeto Sustainable Services Pvt. Ltd.',
-        phone: user.phone || '',
-        email: user.email,
-        agentType: assignedRole === 'ADMIN' ? 'Admin' : 'My Agent',
-        commission: '₹0.75 / KG',
-        status: 'Active',
-      });
+      try {
+        await Agent.create({
+          agentId: generatedAgentId,
+          userId: user._id,
+          name: user.name,
+          company: user.company || 'Climeto Sustainable Services Pvt. Ltd.',
+          phone: user.phone || '',
+          email: user.email,
+          agentType: assignedRole === 'ADMIN' ? 'Admin' : 'My Agent',
+          commission: '₹0.75 / KG',
+          status: 'Active',
+        });
+      } catch (agentErr) {
+        console.warn('[ssoExchange] Warning creating agent profile:', agentErr.message);
+      }
     } else {
       // Sync existing user role & ensure active status and agentId
       let modified = false;
@@ -491,9 +507,7 @@ export const ssoExchange = async (req, res) => {
         modified = true;
       }
       if (!user.agentId) {
-        const prefix = assignedRole === 'ADMIN' ? 'ADM' : 'AGT-MY';
-        const agentCount = await Agent.countDocuments();
-        user.agentId = `${prefix}-${String(agentCount + 101).padStart(3, '0')}`;
+        user.agentId = generateSafeAgentId(assignedRole);
         modified = true;
       }
       if (user.status !== 'ACTIVE') {
@@ -505,24 +519,28 @@ export const ssoExchange = async (req, res) => {
       }
 
       // Ensure Agent record is present in MongoDB
-      let existingAgent = await Agent.findOne({ agentId: user.agentId });
-      if (!existingAgent && user.agentId) {
-        await Agent.create({
-          agentId: user.agentId,
-          userId: user._id,
-          name: user.name,
-          company: user.company || 'Climeto Sustainable Services Pvt. Ltd.',
-          phone: user.phone || '',
-          email: user.email,
-          agentType: assignedRole === 'ADMIN' ? 'Admin' : 'My Agent',
-          commission: '₹0.75 / KG',
-          status: 'Active',
-        });
+      try {
+        let existingAgent = await Agent.findOne({ agentId: user.agentId });
+        if (!existingAgent && user.agentId) {
+          await Agent.create({
+            agentId: user.agentId,
+            userId: user._id,
+            name: user.name,
+            company: user.company || 'Climeto Sustainable Services Pvt. Ltd.',
+            phone: user.phone || '',
+            email: user.email,
+            agentType: assignedRole === 'ADMIN' ? 'Admin' : 'My Agent',
+            commission: '₹0.75 / KG',
+            status: 'Active',
+          });
+        }
+      } catch (agentErr) {
+        console.warn('[ssoExchange] Warning syncing agent profile:', agentErr.message);
       }
     }
 
     const tradingToken = generateToken(user);
-    const agent = user.agentId ? await Agent.findOne({ agentId: user.agentId }) : null;
+    const agent = user.agentId ? await Agent.findOne({ agentId: user.agentId }).catch(() => null) : null;
 
     return res.status(200).json({
       success: true,

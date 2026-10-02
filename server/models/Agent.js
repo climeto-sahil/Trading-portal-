@@ -14,7 +14,7 @@ const agentSchema = new mongoose.Schema(
     city: { type: String, default: '' },
     state: { type: String, default: '' },
     gstNumber: { type: String, default: '' },
-    agentType: { type: String, enum: ['My Agent', 'Counter Party Agent'], required: true },
+    agentType: { type: String, enum: ['My Agent', 'Counter Party Agent', 'Admin'], default: 'My Agent', required: true },
     commission: { type: String, default: '₹0.50 / KG' },
     status: { type: String, default: 'Active' },
     dealsManaged: { type: Number, default: 0 },
