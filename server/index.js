@@ -1,3 +1,4 @@
+import './config/publicDns.js';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -53,6 +54,18 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
+let databaseReady = false;
+app.use('/api', (req, res, next) => {
+  if (req.path === '/health') return next();
+  if (!databaseReady) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database is still connecting. Wait a few seconds and sign in again.',
+    });
+  }
+  next();
+});
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/deals', dealRoutes);
@@ -95,17 +108,20 @@ app.use((err, req, res, next) => {
 
 // Start Server & Connect Database
 const startServer = async () => {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Mode: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Frontend build: ${hasFrontendBuild ? 'yes' : 'no'}`);
+  });
+
   try {
     await connectDB();
     await seedDatabase();
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log(`Mode: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`Frontend build: ${hasFrontendBuild ? 'yes' : 'no'}`);
-    });
+    console.log('Database ready.');
   } catch (error) {
-    console.error('Failed to start server:', error);
-    process.exit(1);
+    console.error('Failed to connect database:', error);
+  } finally {
+    databaseReady = true;
   }
 };
 
