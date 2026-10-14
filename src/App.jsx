@@ -1196,7 +1196,7 @@ export default function App() {
         </div>
               {databaseWarning ? (
                 <div style={{ margin: '12px 16px 0', padding: '12px 14px', borderRadius: '10px', background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: '14px', lineHeight: 1.45 }}>
-                  <strong>Deals are not loading from MongoDB. </strong>{databaseWarning} On the live server, set MONGODB_URI to the same Atlas connection used on this computer, and in Atlas Network Access allow 0.0.0.0/0.
+                  <strong>Deals are not loading from MongoDB. </strong>{databaseWarning} Redeploy after this fix. The live server must keep MONGODB_URI set to the same Atlas connection as this computer.
                 </div>
               ) : null}
               {dashboardMode === 'category' ? (

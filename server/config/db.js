@@ -17,20 +17,34 @@ function safeDbError(message) {
     .slice(0, 300);
 }
 
+export function atlasSrvUri(uri) {
+  const value = String(uri || '').trim();
+  if (!value.startsWith('mongodb://')) return value;
+  const at = value.indexOf('@');
+  if (at === -1) return value;
+  const auth = value.slice('mongodb://'.length, at);
+  const firstHost = value.slice(at + 1).split(',')[0].split(':')[0];
+  if (!firstHost.endsWith('.mongodb.net')) return value;
+  const parent = firstHost.split('.').slice(-3).join('.');
+  const query = value.includes('?') ? value.slice(value.indexOf('?') + 1) : '';
+  const appName = new URLSearchParams(query).get('appName') || 'Cluster0';
+  return `mongodb+srv://${auth}@${appName.toLowerCase()}.${parent}/?retryWrites=true&w=majority&appName=${encodeURIComponent(appName)}`;
+}
+
 export function getDatabaseStatus() {
   return { ...databaseStatus, connected: isMongooseConnected };
 }
 
 async function connectMongo(uri) {
+  const target = atlasSrvUri(uri);
   const options = {
     serverSelectionTimeoutMS: 20000,
     connectTimeoutMS: 20000,
-    family: 4,
   };
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      await mongoose.connect(uri, options);
+      await mongoose.connect(target, options);
       return true;
     } catch (err) {
       lastError = err;
