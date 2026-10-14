@@ -95,3 +95,8 @@ Desktop.ini
 *.crt
 .vercel
 .netlify
+google-service-account.json
+*-service-account.json
+credentials.json
+update-artifacts/
+release-build/
