@@ -77,6 +77,11 @@ export default function AllDealsDashboard({ deals, transactions, counterParties,
                     <span style={{ color: '#cbd5e1' }}>|</span>
                     <span>{new Date(deal.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                   </div>
+                  {String(deal.remark || '').trim() ? (
+                    <div style={{ fontSize: '12px', color: '#475569', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {String(deal.remark).replace(/\s+/g, ' ').trim()}
+                    </div>
+                  ) : null}
                 </div>
 
                 {/* Middle Section: Stats Grid */}

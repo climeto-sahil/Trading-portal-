@@ -37,9 +37,19 @@ export const getTransactions = async (req, res) => {
       .populate('myAgentId')
       .sort({ createdAt: -1 });
 
+    const normalized = transactions.map((tx) => {
+      const plain = typeof tx.toObject === 'function' ? tx.toObject() : { ...tx };
+      try {
+        plain.totalAmount = calculateTransactionTotal(Number(plain.quantity), plain.unit || 'MT', plain.ratePerKg).totalAmount;
+      } catch {
+        // keep the stored amount if unit/rate cannot be calculated
+      }
+      return plain;
+    });
+
     return res.status(200).json({
       success: true,
-      transactions,
+      transactions: normalized,
     });
   } catch (error) {
     console.error('Error fetching transactions:', error);

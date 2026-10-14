@@ -12,3 +12,7 @@ services:
         generateValue: true
       - key: MONGODB_URI
         sync: false
+      - key: ZOHO_CLIQ_WEBHOOK_BASE_URL
+        value: https://cliq.zoho.in/api/v2/channelsbyname/climetofreshupdate/message
+      - key: ZOHO_CLIQ_ZAPIKEY
+        sync: false

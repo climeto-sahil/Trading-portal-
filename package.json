@@ -10,7 +10,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server/index.js",
-    "render-build": "npm install && npm run build"
+    "render-build": "npm install && npm run build",
+    "test": "node --test server/tests/notifications.test.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

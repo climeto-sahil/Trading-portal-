@@ -3,6 +3,8 @@ import { Deal } from '../models/Deal.js';
 import { Transaction } from '../models/Transaction.js';
 import { Agent } from '../models/Agent.js';
 import { CounterParty } from '../models/CounterParty.js';
+import { queueDealCreatedNotification } from '../services/dealNotificationService.js';
+import { normalizeRemark } from '../utils/remark.js';
 
 export const getDeals = async (req, res) => {
   try {
@@ -96,7 +98,11 @@ export const getDealById = async (req, res) => {
 
 export const createDeal = async (req, res) => {
   try {
-    let { counterPartyId, counterPartyAgentId, myAgentId, status, notes, categories } = req.body;
+    let { counterPartyId, counterPartyAgentId, myAgentId, status, notes, categories, remark } = req.body;
+    const parsedRemark = normalizeRemark(remark);
+    if (!parsedRemark.ok) {
+      return res.status(400).json({ success: false, message: parsedRemark.message });
+    }
 
     if (!counterPartyId || !counterPartyAgentId || !myAgentId) {
       return res.status(400).json({ success: false, message: 'Counter Party, Counter Party Agent, and My Agent are required.' });
@@ -137,6 +143,7 @@ export const createDeal = async (req, res) => {
       myAgentId,
       status: status || 'Enquiry',
       notes: notes || '',
+      remark: parsedRemark.remark,
       categories: categories || [],
       createdBy: req.user._id,
       date: new Date(),
@@ -146,6 +153,8 @@ export const createDeal = async (req, res) => {
       .populate('counterPartyId')
       .populate('counterPartyAgentId')
       .populate('myAgentId');
+
+    queueDealCreatedNotification(populated, req.user);
 
     return res.status(201).json({
       success: true,
@@ -184,6 +193,13 @@ export const updateDeal = async (req, res) => {
 
     const updateData = { ...req.body };
     delete updateData._id;
+    if (Object.prototype.hasOwnProperty.call(updateData, 'remark')) {
+      const parsedRemark = normalizeRemark(updateData.remark);
+      if (!parsedRemark.ok) {
+        return res.status(400).json({ success: false, message: parsedRemark.message });
+      }
+      updateData.remark = parsedRemark.remark;
+    }
 
     // Auto-create if they are raw strings instead of IDs
     if (updateData.counterPartyId && (!mongoose.isValidObjectId(updateData.counterPartyId) || !(await CounterParty.findById(updateData.counterPartyId)))) {
@@ -200,7 +216,7 @@ export const updateDeal = async (req, res) => {
     }
 
     await Deal.findByIdAndUpdate(id, updateData, { new: true });
-    
+
     const updated = await Deal.findById(id)
       .populate('counterPartyId')
       .populate('counterPartyAgentId')

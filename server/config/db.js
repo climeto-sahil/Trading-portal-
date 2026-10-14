@@ -48,6 +48,8 @@ export const connectDB = async () => {
         if (fileData.CounterParty) inMemoryDB.counterParties.docs = fileData.CounterParty;
         if (fileData.Deal) inMemoryDB.deals.docs = fileData.Deal;
         if (fileData.Transaction) inMemoryDB.transactions.docs = fileData.Transaction;
+        if (fileData.Notification) inMemoryDB.notifications.docs = fileData.Notification;
+        if (fileData.NotificationSetting) inMemoryDB.notificationSettings.docs = fileData.NotificationSetting;
 
         // Drop orphan transactions whose deal no longer exists (prevents "extra" purchases on reused deal IDs)
         const liveDealIds = new Set(inMemoryDB.deals.docs.map(d => d.dealId));
@@ -84,6 +86,8 @@ export function persistToDisk() {
       CounterParty: inMemoryDB.counterParties.docs,
       Deal: inMemoryDB.deals.docs,
       Transaction: inMemoryDB.transactions.docs,
+      Notification: inMemoryDB.notifications.docs,
+      NotificationSetting: inMemoryDB.notificationSettings.docs,
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
   } catch (e) {
@@ -341,6 +345,8 @@ export const inMemoryDB = {
   counterParties: new InMemoryCollection('CounterParty'),
   deals: new InMemoryCollection('Deal'),
   transactions: new InMemoryCollection('Transaction'),
+  notifications: new InMemoryCollection('Notification'),
+  notificationSettings: new InMemoryCollection('NotificationSetting'),
 };
 
 async function populateRecords(records, fields) {

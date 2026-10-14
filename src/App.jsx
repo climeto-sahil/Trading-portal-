@@ -5,7 +5,7 @@ import {
   Search, Filter, MoreVertical, Copy, CheckCircle, XCircle,
   Phone, MessageSquare, Mail, MapPin, Shield, ArrowDownUp,
   ExternalLink, UserCheck, Lock, Building, Calendar, BarChart3, TrendingUp, TrendingDown,
-  LogOut, User as UserIcon, RefreshCw
+  LogOut, User as UserIcon, RefreshCw, Bell
 } from 'lucide-react';
 import { useAuth } from './context/AuthContext.jsx';
 import LoginPage from './components/LoginPage.jsx';
@@ -13,6 +13,7 @@ import SignupPage from './components/SignupPage.jsx';
 import SsoPage from './components/SsoPage.jsx';
 import PortalSwitcher from './components/PortalSwitcher.jsx';
 import AdminUserManagement from './components/AdminUserManagement.jsx';
+import NotificationCenter from './components/NotificationCenter.jsx';
 import AllDealsDashboard from './components/AllDealsDashboard.jsx';
 import { calculateTransactionTotal, aggregateTransactions, getRateSummaryForTransactions } from './utils/calculations.js';
 
@@ -36,6 +37,15 @@ const formatRate = (rate) => {
     maximumFractionDigits: 0
   }).format(amount || 0);
 };
+
+  // 1 MT = 1000 KG. Always derive rupee total from qty + rate, not the stored field.
+  const transactionTotal = (tx) => {
+    try {
+      return calculateTransactionTotal(Number(tx?.quantity), tx?.unit || 'MT', tx?.ratePerKg).totalAmount;
+    } catch {
+      return Number(tx?.totalAmount) || 0;
+    }
+  };
 
 
 // --- DEAL ACTIONS DROPDOWN COMPONENT ---
@@ -82,6 +92,16 @@ function DealActionsDropdown({ deal, role, uniqueKey, openDropdownId, setOpenDro
 }
 
 // --- CATEGORY DASHBOARD COMPONENT ---
+function DealRemarkLine({ remark }) {
+  const text = typeof remark === 'string' ? remark : '';
+  if (!text.trim()) return null;
+  return (
+    <div style={{ padding: '8px 12px', background: '#fffbeb', borderTop: '1px solid #fde68a', color: '#78350f', fontSize: '0.85rem', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+      <span style={{ fontWeight: 700 }}>Remark: </span>{text}
+    </div>
+  );
+}
+
 function CategoryDashboard({ transactions, counterParties, agents, role, deals, updateDealStatus, deleteDeal, onViewDeal, onViewTransaction, onDeleteTransaction, onEditTransaction, onProfileClick, onAddTransaction }) {
   const [expandedDeals, setExpandedDeals] = useState({});
   const [openDropdownId, setOpenDropdownId] = useState(null);
@@ -154,6 +174,11 @@ function CategoryDashboard({ transactions, counterParties, agents, role, deals, 
                    <div>
                      <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#713f12', display: 'block' }}>{deal.dealId}</span>
                      <span style={{ fontSize: '0.75rem', color: '#a16207' }}>Status: {deal.status}</span>
+                     {String(deal.remark || '').trim() ? (
+                       <div style={{ marginTop: '6px', fontSize: '0.8rem', color: '#78350f', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>
+                         <strong>Remark: </strong>{deal.remark}
+                       </div>
+                     ) : null}
                    </div>
                    <div onClick={e => e.stopPropagation()}>
                      <DealActionsDropdown deal={deal} role={role} uniqueKey={`empty-${deal.dealId}`} openDropdownId={openDropdownId} setOpenDropdownId={setOpenDropdownId} updateDealStatus={updateDealStatus} deleteDeal={deleteDeal} onViewDeal={onViewDeal} openProfile={onProfileClick} onAddTransaction={onAddTransaction} />
@@ -219,6 +244,7 @@ function CategoryDashboard({ transactions, counterParties, agents, role, deals, 
                              {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                            </div>
                         </div>
+                        <DealRemarkLine remark={deal?.remark} />
                         {isExpanded && (
                            <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                              {txList.map(tx => (
@@ -279,6 +305,7 @@ function CategoryDashboard({ transactions, counterParties, agents, role, deals, 
                              {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                            </div>
                         </div>
+                        <DealRemarkLine remark={deal?.remark} />
                         {isExpanded && (
                            <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                              {txList.map(tx => (
@@ -317,6 +344,7 @@ export default function App() {
   
   // Dashboard view: 'workspace' | 'admin-users' | 'all-deals'
   const [activeTab, setActiveTab] = useState('all-deals');
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   // Core Data States (Fetched from REST API)
   const [deals, setDeals] = useState([]);
@@ -373,6 +401,16 @@ export default function App() {
     }, 3500);
   };
 
+  const refreshUnread = async () => {
+    if (!isAuthenticated) return;
+    try {
+      const { response, data } = await authFetch('/api/notifications?limit=1');
+      if (response.ok && data.success) setUnreadNotifications(data.unreadCount || 0);
+    } catch {
+      // Badge refresh should not block the workspace.
+    }
+  };
+
   // Fetch data from backend on auth or tab change
   const loadTradingData = async () => {
     if (!isAuthenticated) return;
@@ -412,6 +450,13 @@ export default function App() {
       loadTradingData();
     }
   }, [isAuthenticated, user?.role]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+    refreshUnread();
+    const timer = setInterval(refreshUnread, 15000);
+    return () => clearInterval(timer);
+  }, [isAuthenticated]);
 
   // Derived Data
   const currentDeal = deals.find(d => d.dealId === currentDealId || d._id === currentDealId);
@@ -661,6 +706,17 @@ export default function App() {
         }
 
         showToast(`${catName} — ${catType} added to ${currentDeal.dealId}`);
+        if (typeof dealData.remark === 'string' && dealData.remark !== (currentDeal.remark || '')) {
+          const { response: remarkRes, data: remarkData } = await authFetch(`/api/deals/${currentDeal._id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ remark: dealData.remark }),
+          });
+          if (!(remarkRes.ok && remarkData.success)) {
+            showToast(remarkData.message || 'Could not save remark.');
+            loadTradingData();
+            return;
+          }
+        }
         setIsDealModalOpen(false);
         loadTradingData();
         return;
@@ -688,6 +744,7 @@ export default function App() {
 
       if (response.ok && data.success) {
         showToast(dealModalMode === 'add' ? `Deal created: ${data.deal.dealId}` : 'Deal updated');
+        if (dealModalMode === 'add') refreshUnread();
         setIsDealModalOpen(false);
         if (dealModalMode === 'add') {
           setCurrentDealId(data.deal.dealId);
@@ -909,13 +966,16 @@ export default function App() {
           {/* Deal Switcher Removed - User now uses the Dashboard */}
 
           {/* Admin Nav Tabs */}
-          {role === 'ADMIN' && (
+          {(role === 'ADMIN' || role === 'MY_AGENT') && (
             <div style={{
               display: 'flex', gap: '4px',
               background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)',
               borderRadius: '10px', padding: '4px',
             }}>
-              {[['all-deals', 'Dashboard'], ['admin-users', 'Users']].map(([tab, label]) => (
+              {(role === 'ADMIN'
+                ? [['all-deals', 'Dashboard'], ['notifications', 'Notifications'], ['admin-users', 'Users']]
+                : [['all-deals', 'Dashboard'], ['notifications', 'Notifications']]
+              ).map(([tab, label]) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -928,7 +988,7 @@ export default function App() {
                     boxShadow: activeTab === tab ? '0 2px 8px rgba(37,99,235,0.4)' : 'none',
                   }}
                 >
-                  {label}
+                  {label}{tab === 'notifications' && unreadNotifications > 0 ? ` (${unreadNotifications})` : ''}
                 </button>
               ))}
             </div>
@@ -980,6 +1040,29 @@ export default function App() {
           {/* Divider */}
           <div style={{ width: '1px', height: '28px', background: 'rgba(255,255,255,0.1)' }} />
 
+          <button
+            onClick={() => setActiveTab(activeTab === 'notifications' ? 'all-deals' : 'notifications')}
+            title="Deal notifications"
+            style={{
+              position: 'relative',
+              width: '36px', height: '36px', borderRadius: '9px', border: 'none',
+              background: activeTab === 'notifications' ? '#2563eb' : 'rgba(255,255,255,0.07)',
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: activeTab === 'notifications' ? '#fff' : '#94a3b8',
+            }}
+          >
+            <Bell size={15} />
+            {unreadNotifications > 0 ? (
+              <span style={{
+                position: 'absolute', top: '-4px', right: '-4px',
+                minWidth: '16px', height: '16px', borderRadius: '999px',
+                background: '#ef4444', color: '#fff', fontSize: '10px', fontWeight: 800,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
+              }}>{unreadNotifications}</span>
+            ) : null}
+          </button>
+
           {/* Refresh */}
           <button
             onClick={loadTradingData}
@@ -1019,7 +1102,9 @@ export default function App() {
 
 
       {/* Render Admin User Management if tab active */}
-      {role === 'ADMIN' && activeTab === 'admin-users' ? (
+      {activeTab === 'notifications' ? (
+        <NotificationCenter authFetch={authFetch} onUnreadChange={setUnreadNotifications} />
+      ) : role === 'ADMIN' && activeTab === 'admin-users' ? (
         <AdminUserManagement 
           onBackToDashboard={() => setActiveTab('all-deals')} 
           onShowToast={showToast} 
@@ -1172,6 +1257,17 @@ export default function App() {
                       <span className="font-semibold">{new Date(currentDeal.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                     </div>
                   </div>
+                  {String(currentDeal.remark || '').trim() ? (
+                    <div style={{ marginTop: '12px' }}>
+                      <span className="text-sm text-muted">Remark</span>
+                      <div style={{ whiteSpace: 'pre-wrap', marginTop: '4px', lineHeight: 1.5 }}>{currentDeal.remark}</div>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: '12px' }}>
+                      <span className="text-sm text-muted">Remark</span>
+                      <div style={{ marginTop: '4px', color: '#94a3b8' }}>No remark added</div>
+                    </div>
+                  )}
                 </div>
                 
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -2124,7 +2220,7 @@ function TransactionCard({ tx, counterParty, counterAgent, myAgent, currentUserR
             {isPurchase ? 'Total Purchase:' : 'Total Sale:'}
           </span>
           <span className={`prominent-total-value currency-text ${isPurchase ? 'text-primary' : 'text-purple-600'}`} style={{ fontSize: '0.9rem' }}>
-            {formatCurrency(tx.totalAmount)}
+            {formatCurrency(transactionTotal(tx))}
           </span>
         </div>
       </div>
@@ -2395,6 +2491,7 @@ function DealModal({ isOpen, onClose, mode, initialData, currentDeal, counterPar
       || (agents.find(a => a._id === (initialData?.myAgentId || currentDeal?.myAgentId))?.name)
       || '',
     notes: initialData?.notes || '',
+    remark: initialData?.remark || currentDeal?.remark || '',
   });
 
   const [includeInitialTx, setIncludeInitialTx] = useState(mode === 'add');
@@ -2620,6 +2717,23 @@ function DealModal({ isOpen, onClose, mode, initialData, currentDeal, counterPar
               </div>
             )}
 
+            <div className="form-group full-width" style={{ marginTop: '16px' }}>
+              <label className="form-label" htmlFor="deal-remark">Remark</label>
+              <textarea
+                id="deal-remark"
+                className="form-input"
+                rows={4}
+                maxLength={1000}
+                placeholder="Enter deal remarks, payment terms, delivery conditions, material specifications, or other important details..."
+                value={formData.remark}
+                onChange={(e) => setFormData({ ...formData, remark: e.target.value.slice(0, 1000) })}
+                style={{ resize: 'vertical', minHeight: '96px', lineHeight: 1.5, width: '100%' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px', fontSize: '12px', color: formData.remark.length >= 1000 ? '#b91c1c' : '#64748b' }}>
+                {formData.remark.length} / 1000
+              </div>
+            </div>
+
             <div className="form-group full-width" style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
               <button type="button" className="btn btn-outline" onClick={onClose} disabled={isSubmitting}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
@@ -2701,6 +2815,13 @@ function DealDetailsDrawer({ isOpen, onClose, deal, transactions, counterParties
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem', fontWeight: 700, marginTop: '8px' }}>
                   <span>Net Margin:</span>
                   <span style={{ color: netAmount >= 0 ? 'var(--success)' : 'var(--danger)' }}>{formatCurrency(netAmount)}</span>
+                </div>
+                <hr style={{ borderColor: '#e2e8f0', margin: '8px 0' }} />
+                <div>
+                  <span className="text-muted">Remark</span>
+                  <div style={{ whiteSpace: 'pre-wrap', marginTop: '6px', lineHeight: 1.5 }}>
+                    {String(deal.remark || '').trim() ? deal.remark : 'No remark added'}
+                  </div>
                 </div>
              </div>
            </div>
@@ -2810,7 +2931,7 @@ function TransactionDrawer({ isOpen, onClose, tx, counterParty, counterAgent, my
           <div className="detail-row" style={{ backgroundColor: 'var(--background)', padding: '12px', borderRadius: 'var(--radius-sm)', marginTop: '8px' }}>
             <span className="detail-label font-bold">{isPurchase ? 'Total Purchase' : 'Total Sale'}</span>
             <span className={`detail-value font-bold currency-text ${isPurchase ? 'text-primary' : 'text-purple-600'}`} style={{ fontSize: '1.25rem' }}>
-              {formatCurrency(tx.totalAmount)}
+              {formatCurrency(transactionTotal(tx))}
             </span>
           </div>
 
@@ -3141,7 +3262,7 @@ function ProfileDrawer({
                 <div className="detail-row" style={{ marginTop: '8px', paddingTop: '10px', borderTop: '1px dashed var(--border)' }}>
                   <span className="detail-label font-bold">{currentDealTx.type === 'Purchase' ? 'Total Purchase' : 'Total Sale'}</span>
                   <span className="detail-value font-bold currency-text text-primary" style={{ fontSize: '1.15rem' }}>
-                    {formatCurrency(currentDealTx.totalAmount || 420000)}
+                    {formatCurrency(transactionTotal(currentDealTx))}
                   </span>
                 </div>
               </div>
@@ -3271,7 +3392,7 @@ function ProfileDrawer({
                         </div>
                         <div>
                           <span className="text-muted">{tx.type === 'Purchase' ? 'Total Purchase:' : 'Total Sale:'}</span>
-                          <div className="font-semibold text-primary">{formatCurrency(tx.totalAmount)}</div>
+                          <div className="font-semibold text-primary">{formatCurrency(transactionTotal(tx))}</div>
                         </div>
                       </div>
 

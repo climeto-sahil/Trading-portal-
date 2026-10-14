@@ -13,6 +13,7 @@ import transactionRoutes from './routes/transactionRoutes.js';
 import agentRoutes from './routes/agentRoutes.js';
 import counterPartyRoutes from './routes/counterPartyRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
 
 dotenv.config();
 
@@ -59,6 +60,7 @@ app.use('/api/transactions', transactionRoutes);
 app.use('/api/agents', agentRoutes);
 app.use('/api/counterparties', counterPartyRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
