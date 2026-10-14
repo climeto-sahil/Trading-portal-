@@ -1,7 +1,38 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import dns from 'dns';
 import fs from 'fs';
 import path from 'path';
+
+const publicResolver = new dns.promises.Resolver();
+publicResolver.setServers(['1.1.1.1', '8.8.8.8']);
+dns.setServers(['1.1.1.1', '8.8.8.8']);
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
+
+const systemLookup = dns.lookup.bind(dns);
+dns.lookup = (hostname, options, callback) => {
+  if (typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+  const family = options && typeof options === 'object' ? options.family : undefined;
+  const resolve = family === 6 ? publicResolver.resolve6(hostname) : publicResolver.resolve4(hostname);
+  resolve
+    .then((addresses) => {
+      if (!addresses || addresses.length === 0) {
+        systemLookup(hostname, options, callback);
+        return;
+      }
+      if (options && options.all) {
+        callback(null, addresses.map((address) => ({ address, family: family === 6 ? 6 : 4 })));
+        return;
+      }
+      callback(null, addresses[0], family === 6 ? 6 : 4);
+    })
+    .catch(() => systemLookup(hostname, options, callback));
+};
 
 let isMongooseConnected = false;
 let databaseStatus = {
@@ -37,6 +68,9 @@ export function getDatabaseStatus() {
 
 async function connectMongo(uri) {
   const target = atlasSrvUri(uri);
+  const at = target.indexOf('@');
+  const hostOnly = at === -1 ? 'unknown' : target.slice(at + 1).split('/')[0];
+  console.log(`MongoDB host: ${hostOnly}`);
   const options = {
     serverSelectionTimeoutMS: 20000,
     connectTimeoutMS: 20000,
