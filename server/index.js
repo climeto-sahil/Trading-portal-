@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { connectDB } from './config/db.js';
+import { connectDB, getDatabaseStatus } from './config/db.js';
 import { seedDatabase } from './seed.js';
 
 import authRoutes from './routes/authRoutes.js';
@@ -64,11 +64,13 @@ app.use('/api/notifications', notificationRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
+  const database = getDatabaseStatus();
   res.json({
-    status: 'OK',
+    status: database.connected ? 'OK' : 'DEGRADED',
     server: 'Trading Portal REST API',
     timestamp: new Date().toISOString(),
     env: process.env.NODE_ENV || 'development',
+    database,
   });
 });
 

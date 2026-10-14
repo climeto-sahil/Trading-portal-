@@ -345,6 +345,7 @@ export default function App() {
   // Dashboard view: 'workspace' | 'admin-users' | 'all-deals'
   const [activeTab, setActiveTab] = useState('all-deals');
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [databaseWarning, setDatabaseWarning] = useState('');
 
   // Core Data States (Fetched from REST API)
   const [deals, setDeals] = useState([]);
@@ -416,12 +417,24 @@ export default function App() {
     if (!isAuthenticated) return;
     setDataLoading(true);
     try {
-      const [dealsRes, txsRes, agentsRes, cpRes] = await Promise.all([
+      const [dealsRes, txsRes, agentsRes, cpRes, healthRes] = await Promise.all([
         authFetch('/api/deals'),
         authFetch('/api/transactions'),
         authFetch('/api/agents'),
         authFetch('/api/counterparties'),
+        authFetch('/api/health'),
       ]);
+
+      if (!dealsRes.response.ok) {
+        showToast(dealsRes.data?.message || 'Could not load deals from the server.');
+      }
+
+      const database = healthRes.data?.database;
+      if (database && database.connected === false) {
+        setDatabaseWarning(database.lastError || 'This server is not connected to MongoDB, so the saved deals are not loaded.');
+      } else {
+        setDatabaseWarning('');
+      }
 
       const loadedDeals = dealsRes.data?.deals || [];
       const loadedTxs = txsRes.data?.transactions || [];
@@ -1181,6 +1194,11 @@ export default function App() {
             </div>
           </div>
         </div>
+              {databaseWarning ? (
+                <div style={{ margin: '12px 16px 0', padding: '12px 14px', borderRadius: '10px', background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: '14px', lineHeight: 1.45 }}>
+                  <strong>Deals are not loading from MongoDB. </strong>{databaseWarning} On the live server, set MONGODB_URI to the same Atlas connection used on this computer, and in Atlas Network Access allow 0.0.0.0/0.
+                </div>
+              ) : null}
               {dashboardMode === 'category' ? (
                 <CategoryDashboard 
                    transactions={visibleTransactions}

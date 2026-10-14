@@ -4,6 +4,22 @@ import fs from 'fs';
 import path from 'path';
 
 let isMongooseConnected = false;
+let databaseStatus = {
+  mode: 'memory',
+  mongoConfigured: false,
+  connected: false,
+  lastError: '',
+};
+
+function safeDbError(message) {
+  return String(message || '')
+    .replace(/mongodb(\+srv)?:\/\/[^@\s]+@/gi, 'mongodb://')
+    .slice(0, 300);
+}
+
+export function getDatabaseStatus() {
+  return { ...databaseStatus, connected: isMongooseConnected };
+}
 
 async function connectMongo(uri) {
   const options = {
@@ -18,22 +34,25 @@ async function connectMongo(uri) {
       return true;
     } catch (err) {
       lastError = err;
-      console.warn(`MongoDB attempt ${attempt} failed: ${err.message}`);
+      console.warn(`MongoDB attempt ${attempt} failed: ${safeDbError(err.message)}`);
       await mongoose.disconnect().catch(() => {});
     }
   }
-  console.warn('Could not connect to MONGODB_URI:', lastError?.message || 'unknown error');
+  console.warn('Could not connect to MONGODB_URI:', safeDbError(lastError?.message) || 'unknown error');
+  databaseStatus.lastError = safeDbError(lastError?.message) || 'Could not connect to MongoDB.';
   return false;
 }
 
 export const connectDB = async () => {
   const uri = process.env.MONGODB_URI;
+  databaseStatus.mongoConfigured = Boolean(uri);
 
   if (uri) {
     console.log('Connecting to MongoDB via MONGODB_URI...');
     const connected = await connectMongo(uri);
     if (connected) {
       console.log('MongoDB connected successfully via MONGODB_URI.');
+      databaseStatus = { mode: 'mongo', mongoConfigured: true, connected: true, lastError: '' };
       
       try {
         await mongoose.connection.collection('users').dropIndex('phone_1');
@@ -56,6 +75,12 @@ export const connectDB = async () => {
   } catch (err) {
     console.log('No local MongoDB daemon detected. Falling back to Local JSON Datastore.');
     isMongooseConnected = false;
+    if (!uri) {
+      databaseStatus.lastError = 'MONGODB_URI is not set on this server, so saved Atlas deals cannot load.';
+    }
+    databaseStatus.mode = 'memory';
+    databaseStatus.connected = false;
+    databaseStatus.mongoConfigured = Boolean(uri);
     
     // Attempt to load existing local database if present
     const DB_FILE = path.join(process.cwd(), 'local_database.json');
