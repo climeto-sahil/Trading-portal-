@@ -132,7 +132,7 @@ export const register = async (req, res) => {
 export const login = async (req, res) => {
   try {
     const rawIdentifier = req.body.identifier || req.body.email; // identifier can be email or phone
-    const { password } = req.body;
+    const password = typeof req.body.password === 'string' ? req.body.password.trim() : '';
 
     if (!rawIdentifier || !password) {
       return res.status(422).json({
