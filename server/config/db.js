@@ -5,13 +5,34 @@ import path from 'path';
 
 let isMongooseConnected = false;
 
+async function connectMongo(uri) {
+  const options = {
+    serverSelectionTimeoutMS: 20000,
+    connectTimeoutMS: 20000,
+    family: 4,
+  };
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await mongoose.connect(uri, options);
+      return true;
+    } catch (err) {
+      lastError = err;
+      console.warn(`MongoDB attempt ${attempt} failed: ${err.message}`);
+      await mongoose.disconnect().catch(() => {});
+    }
+  }
+  console.warn('Could not connect to MONGODB_URI:', lastError?.message || 'unknown error');
+  return false;
+}
+
 export const connectDB = async () => {
   const uri = process.env.MONGODB_URI;
 
   if (uri) {
-    try {
-      console.log('Connecting to MongoDB via MONGODB_URI...');
-      await mongoose.connect(uri, { serverSelectionTimeoutMS: 2000 });
+    console.log('Connecting to MongoDB via MONGODB_URI...');
+    const connected = await connectMongo(uri);
+    if (connected) {
       console.log('MongoDB connected successfully via MONGODB_URI.');
       
       try {
@@ -23,8 +44,6 @@ export const connectDB = async () => {
 
       isMongooseConnected = true;
       return;
-    } catch (err) {
-      console.warn('Could not connect to MONGODB_URI:', err.message);
     }
   }
 
