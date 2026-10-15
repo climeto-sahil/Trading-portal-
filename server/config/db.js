@@ -1,4 +1,4 @@
-import './publicDns.js';
+import { publicLookup } from './publicDns.js';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import fs from 'fs';
@@ -44,6 +44,7 @@ async function connectMongo(uri) {
   const options = {
     serverSelectionTimeoutMS: 20000,
     connectTimeoutMS: 20000,
+    lookup: publicLookup,
   };
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
